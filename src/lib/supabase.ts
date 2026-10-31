@@ -11,11 +11,18 @@ import type {
 } from '@/types';
 import { TIER_ACCENT } from '@/lib/utils';
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string | undefined;
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
+const DEFAULT_SUPABASE_URL = 'https://ikeeddqgliobgfglytgr.supabase.co';
+const DEFAULT_SUPABASE_ANON_KEY =
+  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImlrZWVkZHFnbGlvYmdmZ2x5dGdyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTM0NTk5MDEsImV4cCI6MjEwOTAzNTkwMX0.AD9GYKW3ga35ZKtYCWeotUaAU3tuumFWQcjZziYdBU8';
+
+const supabaseUrl = (import.meta.env.VITE_SUPABASE_URL as string | undefined) || DEFAULT_SUPABASE_URL;
+const supabaseAnonKey =
+  (import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined) ||
+  (import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string | undefined) ||
+  DEFAULT_SUPABASE_ANON_KEY;
 export const artistAdminUid = (import.meta.env.VITE_ARTIST_ADMIN_UID as string | undefined) ?? '';
 
-/** True when real Supabase credentials are configured in `.env`. */
+/** True when real Supabase credentials are configured. */
 export const isSupabaseConfigured = Boolean(
   supabaseUrl &&
     supabaseAnonKey &&
