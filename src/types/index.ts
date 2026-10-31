@@ -6,6 +6,20 @@ export type GalleryFilter = 'all' | TierId;
 
 export type TabId = 'portfolio' | 'rules' | 'schedule' | 'track';
 
+export type Accent = 'coral' | 'mustard' | 'lilac' | 'teal' | 'peach';
+
+export type Currency = 'USD' | 'PHP';
+
+export type PaymentSplit = '50_50' | '100_upfront';
+
+export type CommissionStage =
+  | 'pending_review'
+  | 'awaiting_deposit'
+  | 'sketching'
+  | 'sketch_approval'
+  | 'lineart_coloring'
+  | 'completed';
+
 export interface Tier {
   id: TierId;
   label: string;
@@ -39,8 +53,6 @@ export interface SocialLink {
   color: string;
 }
 
-export type Accent = 'coral' | 'mustard' | 'lilac' | 'teal' | 'peach';
-
 export interface RuleItem {
   label: string;
   note?: string;
@@ -50,4 +62,66 @@ export interface TosSection {
   id: string;
   title: string;
   points: string[];
+}
+
+/** Public anonymised slot shown on the Availability & Queue Calendar (`public_queue_view` in Phase 3). */
+export interface PublicQueueSlot {
+  slotNumber: number;
+  id: string;
+  handleHint: string;
+  tier: TierId;
+  stage: CommissionStage;
+  stageLabel: string;
+  progress: number;
+  /** ISO YYYY-MM-DD */
+  startDate: string;
+  /** ISO YYYY-MM-DD */
+  estEndDate: string;
+  accent: Accent;
+}
+
+export interface BlockedRange {
+  id: string;
+  /** ISO YYYY-MM-DD */
+  startDate: string;
+  /** ISO YYYY-MM-DD */
+  endDate: string;
+  reason: string;
+}
+
+export interface ReferenceFile {
+  id: string;
+  name: string;
+  sizeBytes: number;
+  previewUrl: string;
+}
+
+export interface OrderDraft {
+  tier: TierId;
+  characterCount: number;
+  addons: {
+    nsfw: boolean;
+    softFurry: boolean;
+    commercial: boolean;
+  };
+  currency: Currency;
+  paymentSplit: PaymentSplit;
+  /** Optional preferred start date (YYYY-MM-DD) picked from the calendar. */
+  preferredStartDate: string | null;
+  characterName: string;
+  poseAndVibe: string;
+  backgroundNotes: string;
+  clientContact: string;
+  references: ReferenceFile[];
+  tosAccepted: boolean;
+  tosAcceptedAt: string | null;
+}
+
+export interface SubmittedOrder extends OrderDraft {
+  id: string;
+  createdAt: string;
+  totalUsd: number;
+  depositUsd: number;
+  stage: CommissionStage;
+  authMethod: 'demo' | 'discord' | 'google';
 }

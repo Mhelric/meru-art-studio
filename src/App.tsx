@@ -1,5 +1,5 @@
 import { AnimatePresence, motion } from 'framer-motion';
-import { CalendarDays, PackageSearch } from 'lucide-react';
+import { PackageSearch } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import { useStudio } from '@/context/StudioContext';
 import { initSmoothScroll } from '@/lib/smoothScroll';
@@ -14,6 +14,7 @@ import { Lightbox } from '@/components/portfolio/Lightbox';
 import { TierModal } from '@/components/portfolio/TierModal';
 import { CanCantCards } from '@/components/rules/CanCantCards';
 import { TosAccordion } from '@/components/rules/TosAccordion';
+import { AvailabilityCalendar } from '@/components/schedule/AvailabilityCalendar';
 import { SectionHeading } from '@/components/ui/SectionHeading';
 import { ComingSoon } from '@/components/ui/ComingSoon';
 import { Toast } from '@/components/ui/Toast';
@@ -77,16 +78,7 @@ export default function App() {
               </div>
             )}
 
-            {activeTab === 'schedule' && (
-              <div className="pt-32">
-                <ComingSoon
-                  icon={CalendarDays}
-                  phase={2}
-                  title="Availability & Queue Calendar"
-                  description="Live slot badge, anonymised client queue progress, and open booking windows."
-                />
-              </div>
-            )}
+            {activeTab === 'schedule' && <AvailabilityCalendar />}
 
             {activeTab === 'track' && (
               <div className="pt-32">
