@@ -15,6 +15,7 @@ import { CanCantCards } from '@/components/rules/CanCantCards';
 import { TosAccordion } from '@/components/rules/TosAccordion';
 import { AvailabilityCalendar } from '@/components/schedule/AvailabilityCalendar';
 import { OrderTracker } from '@/components/track/OrderTracker';
+import { AdminPanel } from '@/components/admin/AdminPanel';
 import { SectionHeading } from '@/components/ui/SectionHeading';
 import { Toast } from '@/components/ui/Toast';
 import { EASE } from '@/components/ui/Reveal';
@@ -80,6 +81,8 @@ export default function App() {
             {activeTab === 'schedule' && <AvailabilityCalendar />}
 
             {activeTab === 'track' && <OrderTracker />}
+
+            {activeTab === 'admin' && <AdminPanel />}
           </motion.div>
         </AnimatePresence>
       </main>

@@ -9,7 +9,7 @@ import {
   UserCheck,
 } from 'lucide-react';
 import { useMemo, useState } from 'react';
-import { BLOCKED_RANGES, STUDIO_AVAILABILITY } from '@/data/schedule';
+import { STUDIO_AVAILABILITY } from '@/data/schedule';
 import { useStudio } from '@/context/StudioContext';
 import { ACCENT_CLASSES, cn, formatShortDate, getTier } from '@/lib/utils';
 import { SectionHeading } from '@/components/ui/SectionHeading';
@@ -25,7 +25,7 @@ function toIsoDate(year: number, monthIndex: number, day: number) {
 }
 
 export function AvailabilityCalendar() {
-  const { queueSlots, maxSlots, openDrawer, draft } = useStudio();
+  const { queueSlots, maxSlots, openDrawer, draft, studioSettings } = useStudio();
 
   // Default to November 2026 so active slots, blocked exam dates, and open green windows are visible right away.
   const [cursor, setCursor] = useState<{ year: number; month: number }>(() => {
@@ -63,15 +63,14 @@ export function AvailabilityCalendar() {
 
     for (let day = 1; day <= totalDays; day++) {
       const iso = toIsoDate(cursor.year, cursor.month, day);
-      const blocked = BLOCKED_RANGES.find((b) => iso >= b.startDate && iso <= b.endDate) ?? null;
+      const blocked = studioSettings.blockedRanges.find((b) => iso >= b.startDate && iso <= b.endDate) ?? null;
       const slots = queueSlots.filter((s) => iso >= s.startDate && iso <= s.estEndDate);
-      // A day is an open green booking window if it's not in the past, not blocked, and fewer than 2 active commissions overlap that day
-      const isOpenWindow = !blocked && iso >= todayIso && slots.length < 2;
+      const isOpenWindow = !blocked && studioSettings.status !== 'closed' && iso >= todayIso && slots.length < 2;
 
       cells.push({ iso, day, slots, blocked, isOpenWindow });
     }
     return cells;
-  }, [cursor, queueSlots]);
+  }, [cursor, queueSlots, studioSettings.blockedRanges, studioSettings.status]);
 
   const selectedCell = useMemo(
     () => daysGrid.find((c) => c && c.iso === selectedDay) ?? null,
@@ -96,7 +95,7 @@ export function AvailabilityCalendar() {
               <span className="relative inline-flex size-2 rounded-full bg-teal" />
             </span>
             <span>
-              Commissions: <strong className="font-semibold uppercase">{STUDIO_AVAILABILITY.status}</strong> ·{' '}
+              Commissions: <strong className="font-semibold uppercase">{studioSettings.status}</strong> ·{' '}
               <strong>
                 {openSlotsCount}/{maxSlots} Slots Available
               </strong>

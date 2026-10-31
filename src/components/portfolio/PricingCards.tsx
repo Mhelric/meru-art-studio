@@ -1,5 +1,5 @@
 import { ArrowUpRight, Check, Sparkles } from 'lucide-react';
-import { ADDON_RATES, PORTFOLIO, TIERS } from '@/data/artist';
+import { PORTFOLIO } from '@/data/artist';
 import { useStudio } from '@/context/StudioContext';
 import { ACCENT_CLASSES, TIER_ACCENT, cn, formatUsd } from '@/lib/utils';
 import { SectionHeading } from '@/components/ui/SectionHeading';
@@ -15,14 +15,13 @@ const TIER_SAMPLE: Record<string, { slug: string; pos: string }> = {
   graphics: { slug: 'thumb-gacha-gems', pos: 'object-center' },
 };
 
-const ADDONS = [
-  { label: 'NSFW', value: `+${ADDON_RATES.nsfw * 100}%`, note: 'Soft / tasteful' },
-  { label: 'Soft Furry', value: `+${ADDON_RATES.softFurry * 100}%`, note: 'Kemonomimi & anthros' },
-  { label: 'Commercial Rights', value: `+${ADDON_RATES.commercial * 100}%`, note: 'Streams, merch & monetised use' },
-];
-
 export function PricingCards() {
-  const { commissionTier, selectedTier } = useStudio();
+  const { commissionTier, selectedTier, tiers, studioSettings } = useStudio();
+  const addons = [
+    { label: 'NSFW', value: `+${Math.round(studioSettings.multipliers.nsfw * 100)}%`, note: 'Soft / tasteful' },
+    { label: 'Soft Furry', value: `+${Math.round(studioSettings.multipliers.softFurry * 100)}%`, note: 'Kemonomimi & anthros' },
+    { label: 'Commercial Rights', value: `+${Math.round(studioSettings.multipliers.commercial * 100)}%`, note: 'Streams, merch & monetised use' },
+  ];
 
   return (
     <section id="pricing" className="mt-20 scroll-mt-28 sm:mt-28">
@@ -34,7 +33,7 @@ export function PricingCards() {
 
       {/* Responsive grid: 1 col on small phones, 2 cols on sm, 3 on md, 5 on xl — equal-height cards */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-5">
-        {TIERS.map((tier, i) => {
+        {tiers.map((tier, i) => {
           const selected = selectedTier === tier.id;
           const accent = ACCENT_CLASSES[TIER_ACCENT[tier.id]];
           const sample = TIER_SAMPLE[tier.id] ?? { slug: PORTFOLIO[0].slug, pos: 'object-center' };
@@ -125,7 +124,7 @@ export function PricingCards() {
 
       {/* Add-on multiplier strip */}
       <Reveal delay={0.15} className="card mt-5 grid gap-3 p-4 sm:mt-6 sm:grid-cols-3 sm:gap-4 sm:p-5">
-        {ADDONS.map((a) => (
+        {addons.map((a) => (
           <div key={a.label} className="flex items-center justify-between gap-3 rounded-2xl bg-canvas px-4 py-3">
             <div>
               <p className="font-display text-lg font-semibold text-ink">{a.label}</p>

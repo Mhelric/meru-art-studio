@@ -1,5 +1,5 @@
 import { motion, useMotionValueEvent, useScroll } from 'framer-motion';
-import { ArrowUpRight } from 'lucide-react';
+import { ArrowUpRight, Sliders } from 'lucide-react';
 import { useState } from 'react';
 import { useStudio } from '@/context/StudioContext';
 import { cn } from '@/lib/utils';
@@ -11,6 +11,7 @@ const NAV: { id: TabId; label: string; short: string }[] = [
   { id: 'rules', label: 'Rules & TOS', short: 'Rules' },
   { id: 'schedule', label: 'Schedule & Calendar', short: 'Schedule' },
   { id: 'track', label: 'Track Order', short: 'Track' },
+  { id: 'admin', label: 'Artist Admin', short: 'Admin' },
 ];
 
 export function NavBar() {
@@ -74,14 +75,15 @@ function NavItems({ activeTab, onSelect, compact = false }: { activeTab: TabId; 
     <>
       {NAV.map(({ id, label, short }) => {
         const active = activeTab === id;
+        const isAdmin = id === 'admin';
         return (
           <button
             key={id}
             onClick={() => onSelect(id)}
             aria-current={active ? 'page' : undefined}
             className={cn(
-              'relative flex-1 rounded-full px-2.5 py-1.5 text-xs font-medium whitespace-nowrap transition-colors duration-300 sm:px-3 sm:py-2 lg:px-4 lg:text-sm',
-              active ? 'text-white' : 'text-ink-soft hover:text-ink',
+              'relative flex-1 rounded-full px-2 py-1.5 text-xs font-medium whitespace-nowrap transition-colors duration-300 sm:px-3 sm:py-2 lg:px-4 lg:text-sm',
+              active ? 'text-white' : isAdmin ? 'text-coral hover:text-ink' : 'text-ink-soft hover:text-ink',
             )}
           >
             {active && (
@@ -91,7 +93,8 @@ function NavItems({ activeTab, onSelect, compact = false }: { activeTab: TabId; 
                 transition={{ type: 'spring', stiffness: 380, damping: 32 }}
               />
             )}
-            <span className="relative">
+            <span className="relative inline-flex items-center gap-1">
+              {isAdmin && <Sliders className="size-3 shrink-0" />}
               {compact ? (
                 short
               ) : (

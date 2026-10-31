@@ -4,7 +4,22 @@ export type TierId = 'headshot' | 'halfbody' | 'fullbody' | 'chibi' | 'graphics'
 
 export type GalleryFilter = 'all' | TierId;
 
-export type TabId = 'portfolio' | 'rules' | 'schedule' | 'track';
+export type TabId = 'portfolio' | 'rules' | 'schedule' | 'track' | 'admin';
+
+export type AvailabilityStatus = 'open' | 'waitlist' | 'closed';
+
+export interface StudioSettingsState {
+  status: AvailabilityStatus;
+  maxSlots: number;
+  usdToPhpRate: number;
+  basePrices: Record<TierId, number>;
+  multipliers: {
+    nsfw: number;
+    softFurry: number;
+    commercial: number;
+  };
+  blockedRanges: BlockedRange[];
+}
 
 export type Accent = 'coral' | 'mustard' | 'lilac' | 'teal' | 'peach';
 
@@ -154,7 +169,9 @@ export interface SubmittedOrder extends OrderDraft {
   sketchApproved: boolean;
   stage: CommissionStage;
   progress: number;
+  startDate?: string;
   estEndDate?: string;
+  declined?: boolean;
   authMethod: 'demo' | 'discord' | 'google';
   wips: WipUploadItem[];
   messages: OrderMessage[];

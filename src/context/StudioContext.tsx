@@ -16,14 +16,17 @@ import type {
   OrderDraft,
   OrderMessage,
   PublicQueueSlot,
+  StudioSettingsState,
   SubmittedOrder,
   TabId,
+  Tier,
   TierId,
+  WipUploadItem,
 } from '@/types';
-import { INITIAL_PUBLIC_QUEUE, STUDIO_AVAILABILITY } from '@/data/schedule';
+import { BLOCKED_RANGES, INITIAL_PUBLIC_QUEUE, STUDIO_AVAILABILITY } from '@/data/schedule';
 import { DEMO_SHOWCASE_ORDER, STAGE_STEPS } from '@/data/orders';
-import { ADDON_RATES } from '@/data/artist';
-import { getTier } from '@/lib/utils';
+import { ADDON_RATES, TIERS } from '@/data/artist';
+import { TIER_ACCENT } from '@/lib/utils';
 import {
   artistAdminUid,
   fetchPublicStudioData,
@@ -34,9 +37,10 @@ import {
 } from '@/lib/supabase';
 import { scrollToTarget } from '@/lib/smoothScroll';
 
-const TAB_IDS: TabId[] = ['portfolio', 'rules', 'schedule', 'track'];
+const TAB_IDS: TabId[] = ['portfolio', 'rules', 'schedule', 'track', 'admin'];
 const DRAFT_KEY = 'meru-order-draft-v1';
 const ORDERS_KEY = 'meru-submitted-orders-v2';
+const SETTINGS_KEY = 'meru-studio-settings-v1';
 
 interface Toast {
   id: number;
@@ -49,6 +53,42 @@ interface LightboxState {
 }
 
 export type DrawerStep = 1 | 2 | 3;
+
+export const DEFAULT_STUDIO_SETTINGS: StudioSettingsState = {
+  status: STUDIO_AVAILABILITY.status,
+  maxSlots: STUDIO_AVAILABILITY.maxSlots,
+  usdToPhpRate: STUDIO_AVAILABILITY.usdToPhpRate,
+  basePrices: {
+    headshot: 15,
+    halfbody: 25,
+    fullbody: 40,
+    chibi: 10,
+    graphics: 5,
+  },
+  multipliers: {
+    nsfw: ADDON_RATES.nsfw,
+    softFurry: ADDON_RATES.softFurry,
+    commercial: ADDON_RATES.commercial,
+  },
+  blockedRanges: BLOCKED_RANGES,
+};
+
+function loadStudioSettings(): StudioSettingsState {
+  try {
+    const raw = localStorage.getItem(SETTINGS_KEY);
+    if (!raw) return DEFAULT_STUDIO_SETTINGS;
+    const parsed = JSON.parse(raw) as Partial<StudioSettingsState>;
+    return {
+      ...DEFAULT_STUDIO_SETTINGS,
+      ...parsed,
+      basePrices: { ...DEFAULT_STUDIO_SETTINGS.basePrices, ...(parsed.basePrices ?? {}) },
+      multipliers: { ...DEFAULT_STUDIO_SETTINGS.multipliers, ...(parsed.multipliers ?? {}) },
+      blockedRanges: parsed.blockedRanges ?? DEFAULT_STUDIO_SETTINGS.blockedRanges,
+    };
+  } catch {
+    return DEFAULT_STUDIO_SETTINGS;
+  }
+}
 
 const DEFAULT_DRAFT: OrderDraft = {
   tier: 'fullbody',
@@ -93,25 +133,25 @@ function loadSubmittedOrders(): SubmittedOrder[] {
   }
 }
 
-export function calculateOrderPricing(draft: OrderDraft) {
-  const tier = getTier(draft.tier);
+export function calculateOrderPricing(draft: OrderDraft, settings: StudioSettingsState = DEFAULT_STUDIO_SETTINGS) {
+  const baseUsd = settings.basePrices[draft.tier] ?? 15;
   let mult = 1;
-  if (draft.addons.nsfw) mult += ADDON_RATES.nsfw;
-  if (draft.addons.softFurry) mult += ADDON_RATES.softFurry;
-  if (draft.addons.commercial) mult += ADDON_RATES.commercial;
+  if (draft.addons.nsfw) mult += settings.multipliers.nsfw;
+  if (draft.addons.softFurry) mult += settings.multipliers.softFurry;
+  if (draft.addons.commercial) mult += settings.multipliers.commercial;
 
-  const subtotal = tier.basePriceUsd * draft.characterCount;
+  const subtotal = baseUsd * draft.characterCount;
   const totalUsd = Math.round(subtotal * mult);
   const depositUsd = draft.paymentSplit === '100_upfront' ? totalUsd : Math.ceil(totalUsd / 2);
   const remainingUsd = totalUsd - depositUsd;
 
   return {
-    baseUsd: tier.basePriceUsd,
+    baseUsd,
     multiplier: mult,
     totalUsd,
     depositUsd,
     remainingUsd,
-    usdToPhpRate: STUDIO_AVAILABILITY.usdToPhpRate,
+    usdToPhpRate: settings.usdToPhpRate,
   };
 }
 
@@ -130,19 +170,32 @@ interface StudioState {
   draft: OrderDraft;
   updateDraft: (patch: Partial<OrderDraft>) => void;
   resetDraft: () => void;
+  /** Dynamic studio settings (editable live in Phase 5 Admin Dev Mode). */
+  studioSettings: StudioSettingsState;
+  tiers: Tier[];
+  updateStudioSettings: (patch: Partial<StudioSettingsState>) => void;
+  resetStudioSettings: () => void;
+  toggleBlockedDate: (isoDate: string, reason?: string) => void;
+  removeBlockedRange: (id: string) => void;
   queueSlots: PublicQueueSlot[];
   maxSlots: number;
   submittedOrders: SubmittedOrder[];
   activeOrderId: string;
   setActiveOrderId: (id: string) => void;
-  /** True if the user already has a `pending_review` request (enforces the 1-pending-request-per-user scam-protection rule). */
   hasPendingOrder: boolean;
   submitOrder: (authMethod: SubmittedOrder['authMethod']) => Promise<{
     order: SubmittedOrder | null;
     error: string | null;
   }>;
-  /** Phase 4 Order Room actions */
+  /** Phase 4 & 5 Order / Payment / WIP Controller actions */
   setOrderStage: (orderId: string, stage: CommissionStage) => void;
+  declineOrder: (orderId: string) => void;
+  toggleOrderPaymentFlag: (orderId: string, field: 'depositPaid' | 'finalPaid') => void;
+  updateOrderSchedule: (orderId: string, startDate: string, estEndDate: string) => void;
+  uploadArtistWip: (
+    orderId: string,
+    payload: { title: string; artistNote: string; isFinal: boolean; imageUrl?: string; slug?: string },
+  ) => void;
   uploadPaymentReceipt: (orderId: string, kind: 'deposit' | 'final', attachmentUrl?: string) => void;
   approveOrderSketch: (orderId: string) => void;
   sendOrderMessage: (
@@ -152,6 +205,8 @@ interface StudioState {
   ) => void;
   user: User | null;
   isArtistAdmin: boolean;
+  devAdminPreview: boolean;
+  setDevAdminPreview: (enabled: boolean) => void;
   supabaseLive: boolean;
   signOut: () => Promise<void>;
   lightbox: LightboxState | null;
@@ -181,14 +236,15 @@ const TIER_SAMPLE_SLUG: Record<TierId, string> = {
 export function StudioProvider({ children }: { children: ReactNode }) {
   const [activeTab, setActiveTabState] = useState<TabId>(readHashTab);
   const [galleryFilter, setGalleryFilter] = useState<GalleryFilter>('all');
+  const [studioSettings, setStudioSettings] = useState<StudioSettingsState>(loadStudioSettings);
   const [draft, setDraft] = useState<OrderDraft>(loadSavedDraft);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [drawerStep, setDrawerStep] = useState<DrawerStep>(1);
-  const [queueSlots, setQueueSlots] = useState<PublicQueueSlot[]>(INITIAL_PUBLIC_QUEUE);
-  const [maxSlots, setMaxSlots] = useState<number>(STUDIO_AVAILABILITY.maxSlots);
+  const [baseQueueSlots, setBaseQueueSlots] = useState<PublicQueueSlot[]>(INITIAL_PUBLIC_QUEUE);
   const [submittedOrders, setSubmittedOrders] = useState<SubmittedOrder[]>(loadSubmittedOrders);
   const [activeOrderId, setActiveOrderId] = useState<string>(() => loadSubmittedOrders()[0]?.id ?? DEMO_SHOWCASE_ORDER.id);
   const [user, setUser] = useState<User | null>(null);
+  const [devAdminPreview, setDevAdminPreview] = useState<boolean>(true);
   const [lightbox, setLightbox] = useState<LightboxState | null>(null);
   const [toast, setToast] = useState<Toast | null>(null);
   const toastTimer = useRef<number | undefined>(undefined);
@@ -212,24 +268,85 @@ export function StudioProvider({ children }: { children: ReactNode }) {
     });
 
     fetchPublicStudioData().then(({ settings, queue }) => {
-      if (settings?.max_slots) setMaxSlots(settings.max_slots);
-      if (queue && queue.length > 0) setQueueSlots(queue);
+      if (settings) {
+        setStudioSettings((prev) => ({
+          ...prev,
+          status: settings.availability_status ?? prev.status,
+          maxSlots: settings.max_slots ?? prev.maxSlots,
+          usdToPhpRate: Number(settings.usd_to_php_rate ?? prev.usdToPhpRate),
+          basePrices: { ...prev.basePrices, ...(settings.base_prices_json ?? {}) },
+          multipliers: { ...prev.multipliers, ...(settings.multipliers_json ?? {}) },
+          blockedRanges: settings.blocked_dates ?? prev.blockedRanges,
+        }));
+      }
+      if (queue && queue.length > 0) setBaseQueueSlots(queue);
     });
 
     return () => sub.subscription.unsubscribe();
   }, []);
 
-  // Persist draft (excluding ephemeral blob URLs)
+  // Persist studio settings
+  useEffect(() => {
+    try {
+      localStorage.setItem(SETTINGS_KEY, JSON.stringify(studioSettings));
+    } catch {
+      // ignore
+    }
+  }, [studioSettings]);
+
+  // Persist draft
   useEffect(() => {
     try {
       const { references: _refs, ...serializable } = draft;
       localStorage.setItem(DRAFT_KEY, JSON.stringify(serializable));
     } catch {
-      // ignore storage quota errors
+      // ignore
     }
   }, [draft]);
 
-  // Persist orders
+  const tiers = useMemo<Tier[]>(
+    () =>
+      TIERS.map((t) => ({
+        ...t,
+        basePriceUsd: studioSettings.basePrices[t.id] ?? t.basePriceUsd,
+      })),
+    [studioSettings.basePrices],
+  );
+
+  // Merge active approved orders into the public queue view so approving a brief in Admin Mode updates the public calendar!
+  const queueSlots = useMemo<PublicQueueSlot[]>(() => {
+    const activeStages: CommissionStage[] = [
+      'awaiting_deposit',
+      'sketching',
+      'sketch_approval',
+      'lineart_coloring',
+    ];
+    const promotedFromOrders: PublicQueueSlot[] = submittedOrders
+      .filter((o) => o.id !== DEMO_SHOWCASE_ORDER.id && !o.declined && activeStages.includes(o.stage))
+      .map((o, i) => {
+        const rawHandle = (o.clientContact || o.characterName || 'client').trim();
+        const hint =
+          rawHandle.length <= 2
+            ? `${rawHandle[0] ?? 'c'}***`
+            : `${rawHandle[0]}***${rawHandle[rawHandle.length - 1]}`;
+        const stageInfo = STAGE_STEPS.find((s) => s.id === o.stage);
+        return {
+          slotNumber: baseQueueSlots.length + i + 1,
+          id: o.id,
+          handleHint: hint,
+          tier: o.tier,
+          stage: o.stage,
+          stageLabel: stageInfo?.shortLabel ?? 'In Progress',
+          progress: o.progress,
+          startDate: o.startDate ?? o.preferredStartDate ?? '2026-11-05',
+          estEndDate: o.estEndDate ?? '2026-11-19',
+          accent: TIER_ACCENT[o.tier],
+        };
+      });
+
+    return [...baseQueueSlots, ...promotedFromOrders].slice(0, studioSettings.maxSlots);
+  }, [baseQueueSlots, submittedOrders, studioSettings.maxSlots]);
+
   const persistOrders = useCallback((updater: (prev: SubmittedOrder[]) => SubmittedOrder[]) => {
     setSubmittedOrders((prev) => {
       const next = updater(prev);
@@ -255,6 +372,41 @@ export function StudioProvider({ children }: { children: ReactNode }) {
     window.clearTimeout(toastTimer.current);
     setToast({ id: Date.now(), message });
     toastTimer.current = window.setTimeout(() => setToast(null), 4000);
+  }, []);
+
+  const updateStudioSettings = useCallback((patch: Partial<StudioSettingsState>) => {
+    setStudioSettings((prev) => ({ ...prev, ...patch }));
+  }, []);
+
+  const resetStudioSettings = useCallback(() => {
+    setStudioSettings(DEFAULT_STUDIO_SETTINGS);
+    showToast('Studio prices, multipliers, and slots reset to defaults.');
+  }, [showToast]);
+
+  const toggleBlockedDate = useCallback((isoDate: string, reason = 'Artist Busy / Blocked Day') => {
+    setStudioSettings((prev) => {
+      const existing = prev.blockedRanges.find((b) => isoDate >= b.startDate && isoDate <= b.endDate);
+      if (existing) {
+        return {
+          ...prev,
+          blockedRanges: prev.blockedRanges.filter((b) => b.id !== existing.id),
+        };
+      }
+      return {
+        ...prev,
+        blockedRanges: [
+          ...prev.blockedRanges,
+          { id: `block-${Date.now()}`, startDate: isoDate, endDate: isoDate, reason },
+        ],
+      };
+    });
+  }, []);
+
+  const removeBlockedRange = useCallback((id: string) => {
+    setStudioSettings((prev) => ({
+      ...prev,
+      blockedRanges: prev.blockedRanges.filter((b) => b.id !== id),
+    }));
   }, []);
 
   const updateDraft = useCallback((patch: Partial<OrderDraft>) => {
@@ -286,9 +438,8 @@ export function StudioProvider({ children }: { children: ReactNode }) {
     setDrawerOpen(true);
   }, []);
 
-  // Scam-protection rule: only 1 `pending_review` request allowed per client at a time
   const hasPendingOrder = useMemo(
-    () => submittedOrders.some((o) => o.stage === 'pending_review'),
+    () => submittedOrders.some((o) => !o.declined && o.stage === 'pending_review'),
     [submittedOrders],
   );
 
@@ -300,13 +451,12 @@ export function StudioProvider({ children }: { children: ReactNode }) {
         return {
           order: null,
           error:
-            'Scam & Spam Protection: You already have 1 request in Pending Review. Please wait for Meru to review your active request (or inspect it in the Track Order tab).',
+            'Scam & Spam Protection: You already have 1 request in Pending Review. Please wait for Meru to review your active request (or approve it in Admin Dev Mode).',
         };
       }
 
-      const { totalUsd, depositUsd } = calculateOrderPricing(draft);
+      const { totalUsd, depositUsd } = calculateOrderPricing(draft, studioSettings);
 
-      // If Supabase is configured and the user chose Discord/Google OAuth
       if (supabase && authMethod !== 'demo') {
         if (!user) {
           const { error } = await signInWithOAuthProvider(authMethod);
@@ -323,6 +473,7 @@ export function StudioProvider({ children }: { children: ReactNode }) {
       const id = `MRU-${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
       const sampleSlug = TIER_SAMPLE_SLUG[draft.tier];
       const nowIso = new Date().toISOString();
+      const tierLabel = tiers.find((t) => t.id === draft.tier)?.label ?? draft.tier;
 
       const order: SubmittedOrder = {
         ...draft,
@@ -335,13 +486,15 @@ export function StudioProvider({ children }: { children: ReactNode }) {
         sketchApproved: false,
         stage: 'pending_review',
         progress: 10,
+        startDate: draft.preferredStartDate ?? '2026-11-05',
+        estEndDate: '2026-11-19',
         authMethod,
         wips: [
           {
             id: `${id}-wip-1`,
             commissionId: id,
             stage: 'sketch_approval',
-            title: `WIP #1 · ${getTier(draft.tier).label} Composition & Pose Sketch`,
+            title: `WIP #1 · ${tierLabel} Composition & Pose Sketch`,
             slug: sampleSlug,
             isFinal: false,
             artistNote: 'Initial pose & expression check! Watermarked during progress.',
@@ -352,7 +505,7 @@ export function StudioProvider({ children }: { children: ReactNode }) {
             id: `${id}-wip-final`,
             commissionId: id,
             stage: 'completed',
-            title: `Final · High-Res ${getTier(draft.tier).label} PNG`,
+            title: `Final · High-Res ${tierLabel} PNG`,
             slug: sampleSlug,
             isFinal: true,
             artistNote: 'Full-resolution unwatermarked master file.',
@@ -366,7 +519,7 @@ export function StudioProvider({ children }: { children: ReactNode }) {
             commissionId: id,
             senderRole: 'artist',
             senderName: 'Meru Art (Auto-Bot)',
-            body: `Thanks for submitting your ${getTier(draft.tier).label} brief! Your request is in Pending Review. Once approved, you’ll be prompted here to upload your ${draft.paymentSplit === '50_50' ? '50%' : '100%'} deposit receipt.`,
+            body: `Thanks for submitting your ${tierLabel} brief! Your request is in Pending Review. Once approved, you’ll be prompted here to upload your ${draft.paymentSplit === '50_50' ? '50%' : '100%'} deposit receipt.`,
             createdAt: nowIso,
           },
         ],
@@ -376,7 +529,7 @@ export function StudioProvider({ children }: { children: ReactNode }) {
       setActiveOrderId(order.id);
       return { order, error: null };
     },
-    [draft, hasPendingOrder, persistOrders, user],
+    [draft, hasPendingOrder, persistOrders, studioSettings, tiers, user],
   );
 
   const setOrderStage = useCallback(
@@ -387,6 +540,7 @@ export function StudioProvider({ children }: { children: ReactNode }) {
           if (o.id !== orderId) return o;
           return {
             ...o,
+            declined: false,
             stage,
             progress: meta?.progress ?? o.progress,
             depositPaid: stage !== 'pending_review' && stage !== 'awaiting_deposit' ? true : o.depositPaid,
@@ -397,6 +551,85 @@ export function StudioProvider({ children }: { children: ReactNode }) {
       );
     },
     [persistOrders],
+  );
+
+  const declineOrder = useCallback(
+    (orderId: string) => {
+      persistOrders((prev) =>
+        prev.map((o) => (o.id === orderId ? { ...o, declined: true } : o)),
+      );
+      showToast(`Order #${orderId} declined. Slot was not deducted.`);
+    },
+    [persistOrders, showToast],
+  );
+
+  const toggleOrderPaymentFlag = useCallback(
+    (orderId: string, field: 'depositPaid' | 'finalPaid') => {
+      persistOrders((prev) =>
+        prev.map((o) => {
+          if (o.id !== orderId) return o;
+          const nextVal = !o[field];
+          let nextStage = o.stage;
+          let nextProgress = o.progress;
+          if (field === 'depositPaid' && nextVal && o.stage === 'awaiting_deposit') {
+            nextStage = 'sketching';
+            nextProgress = 42;
+          }
+          if (field === 'finalPaid' && nextVal && o.stage === 'sketch_approval') {
+            nextStage = 'lineart_coloring';
+            nextProgress = 85;
+          }
+          return { ...o, [field]: nextVal, stage: nextStage, progress: nextProgress };
+        }),
+      );
+    },
+    [persistOrders],
+  );
+
+  const updateOrderSchedule = useCallback(
+    (orderId: string, startDate: string, estEndDate: string) => {
+      persistOrders((prev) =>
+        prev.map((o) => (o.id === orderId ? { ...o, startDate, preferredStartDate: startDate, estEndDate } : o)),
+      );
+      showToast(`Updated schedule window for #${orderId}.`);
+    },
+    [persistOrders, showToast],
+  );
+
+  const uploadArtistWip = useCallback(
+    (
+      orderId: string,
+      payload: { title: string; artistNote: string; isFinal: boolean; imageUrl?: string; slug?: string },
+    ) => {
+      const nowIso = new Date().toISOString();
+      persistOrders((prev) =>
+        prev.map((o) => {
+          if (o.id !== orderId) return o;
+          const newWip: WipUploadItem = {
+            id: `wip-${Date.now()}`,
+            commissionId: orderId,
+            stage: payload.isFinal ? 'completed' : 'sketch_approval',
+            title: payload.title,
+            slug: payload.slug ?? (payload.imageUrl ? undefined : TIER_SAMPLE_SLUG[o.tier]),
+            imageUrl: payload.imageUrl,
+            isFinal: payload.isFinal,
+            artistNote: payload.artistNote,
+            approvedByClient: false,
+            createdAt: nowIso,
+          };
+          const nextStage: CommissionStage = payload.isFinal ? 'completed' : 'sketch_approval';
+          const nextProgress = payload.isFinal ? 100 : 62;
+          return {
+            ...o,
+            stage: nextStage,
+            progress: nextProgress,
+            wips: [newWip, ...o.wips],
+          };
+        }),
+      );
+      showToast(payload.isFinal ? 'Final master file uploaded & unlocked!' : 'Watermarked WIP uploaded to client room!');
+    },
+    [persistOrders, showToast],
   );
 
   const sendOrderMessage = useCallback(
@@ -421,7 +654,6 @@ export function StudioProvider({ children }: { children: ReactNode }) {
         prev.map((o) => (o.id === orderId ? { ...o, messages: [...o.messages, newMsg] } : o)),
       );
 
-      // Simulated realtime artist reply in Demo Mode when client posts a message
       if (role === 'client') {
         window.setTimeout(() => {
           const replyText =
@@ -507,11 +739,12 @@ export function StudioProvider({ children }: { children: ReactNode }) {
   const isArtistAdmin = useMemo(
     () =>
       Boolean(
-        user &&
-          ((user.app_metadata as { role?: string } | undefined)?.role === 'artist' ||
-            (artistAdminUid && user.id === artistAdminUid)),
+        devAdminPreview ||
+          (user &&
+            ((user.app_metadata as { role?: string } | undefined)?.role === 'artist' ||
+              (artistAdminUid && user.id === artistAdminUid))),
       ),
-    [user],
+    [devAdminPreview, user],
   );
 
   const openLightbox = useCallback((ids: string[], index: number) => setLightbox({ ids, index }), []);
@@ -534,19 +767,31 @@ export function StudioProvider({ children }: { children: ReactNode }) {
       draft,
       updateDraft,
       resetDraft,
+      studioSettings,
+      tiers,
+      updateStudioSettings,
+      resetStudioSettings,
+      toggleBlockedDate,
+      removeBlockedRange,
       queueSlots,
-      maxSlots,
+      maxSlots: studioSettings.maxSlots,
       submittedOrders,
       activeOrderId,
       setActiveOrderId,
       hasPendingOrder,
       submitOrder,
       setOrderStage,
+      declineOrder,
+      toggleOrderPaymentFlag,
+      updateOrderSchedule,
+      uploadArtistWip,
       uploadPaymentReceipt,
       approveOrderSketch,
       sendOrderMessage,
       user,
       isArtistAdmin,
+      devAdminPreview,
+      setDevAdminPreview,
       supabaseLive: isSupabaseConfigured,
       signOut,
       lightbox,
@@ -569,18 +814,28 @@ export function StudioProvider({ children }: { children: ReactNode }) {
       closeDrawer,
       updateDraft,
       resetDraft,
+      studioSettings,
+      tiers,
+      updateStudioSettings,
+      resetStudioSettings,
+      toggleBlockedDate,
+      removeBlockedRange,
       queueSlots,
-      maxSlots,
       submittedOrders,
       activeOrderId,
       hasPendingOrder,
       submitOrder,
       setOrderStage,
+      declineOrder,
+      toggleOrderPaymentFlag,
+      updateOrderSchedule,
+      uploadArtistWip,
       uploadPaymentReceipt,
       approveOrderSketch,
       sendOrderMessage,
       user,
       isArtistAdmin,
+      devAdminPreview,
       signOut,
       lightbox,
       openLightbox,

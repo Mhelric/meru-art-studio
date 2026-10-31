@@ -16,9 +16,9 @@ import {
   X,
 } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react';
-import { PORTFOLIO, TIERS } from '@/data/artist';
+import { PORTFOLIO } from '@/data/artist';
 import { calculateOrderPricing, useStudio, type DrawerStep } from '@/context/StudioContext';
-import { ACCENT_CLASSES, TIER_ACCENT, cn, formatMoney, formatShortDate, getTier } from '@/lib/utils';
+import { ACCENT_CLASSES, TIER_ACCENT, cn, formatShortDate } from '@/lib/utils';
 import { lockScroll } from '@/lib/smoothScroll';
 import { EASE } from '@/components/ui/Reveal';
 import { BrandIcon } from '@/components/ui/BrandIcon';
@@ -54,6 +54,8 @@ export function TierModal() {
     draft,
     updateDraft,
     resetDraft,
+    studioSettings,
+    tiers,
     openLightbox,
     submitOrder,
     setActiveTab,
@@ -67,12 +69,17 @@ export function TierModal() {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const tierId = draft.tier;
-  const tier = getTier(tierId);
+  const tier = tiers.find((t) => t.id === tierId) ?? tiers[0];
   const accent = ACCENT_CLASSES[TIER_ACCENT[tierId]];
   const preview = TIER_PREVIEW[tierId];
   const currency = draft.currency;
 
-  const pricing = useMemo(() => calculateOrderPricing(draft), [draft]);
+  const formatRate = (usd: number) =>
+    currency === 'USD'
+      ? `$${usd}`
+      : `₱${Math.round(usd * studioSettings.usdToPhpRate).toLocaleString('en-PH')}`;
+
+  const pricing = useMemo(() => calculateOrderPricing(draft, studioSettings), [draft, studioSettings]);
 
   useEffect(() => {
     if (!drawerOpen) {
@@ -278,7 +285,7 @@ export function TierModal() {
                   <div>
                     <span className="mb-1.5 block text-xs font-medium text-ink">Select Style Tier</span>
                     <div className="grid grid-cols-5 gap-1">
-                      {TIERS.map((t) => {
+                      {tiers.map((t) => {
                         const active = t.id === tierId;
                         const shortName = t.id === 'chibi' ? 'Chibi' : t.label;
                         return (
@@ -295,7 +302,7 @@ export function TierModal() {
                           >
                             <span className="text-[11px] leading-tight font-medium">{shortName}</span>
                             <span className={cn('mt-0.5 text-[10px] font-semibold', active ? 'text-mustard' : 'text-ink-mute')}>
-                              {formatMoney(t.basePriceUsd, currency)}
+                              {formatRate(t.basePriceUsd)}
                             </span>
                           </button>
                         );
@@ -381,9 +388,9 @@ export function TierModal() {
                     <div className="grid grid-cols-3 gap-2">
                       {(
                         [
-                          { key: 'nsfw', label: 'NSFW', sub: 'Soft / tasteful', rate: '+50%' },
-                          { key: 'softFurry', label: 'Soft Furry', sub: 'Kemonomimi', rate: '+50%' },
-                          { key: 'commercial', label: 'Commercial', sub: 'Merch / streams', rate: '+200%' },
+                          { key: 'nsfw', label: 'NSFW', sub: 'Soft / tasteful', rate: `+${Math.round(studioSettings.multipliers.nsfw * 100)}%` },
+                          { key: 'softFurry', label: 'Soft Furry', sub: 'Kemonomimi', rate: `+${Math.round(studioSettings.multipliers.softFurry * 100)}%` },
+                          { key: 'commercial', label: 'Commercial', sub: 'Merch / streams', rate: `+${Math.round(studioSettings.multipliers.commercial * 100)}%` },
                         ] as const
                       ).map((item) => {
                         const active = draft.addons[item.key];
@@ -429,12 +436,12 @@ export function TierModal() {
                           {
                             id: '50_50',
                             title: '50% / 50% Split',
-                            sub: `${formatMoney(Math.ceil(pricing.totalUsd / 2), currency)} now · rest after sketch`,
+                            sub: `${formatRate(Math.ceil(pricing.totalUsd / 2))} now · rest after sketch`,
                           },
                           {
                             id: '100_upfront',
                             title: '100% Upfront',
-                            sub: `${formatMoney(pricing.totalUsd, currency)} single payment`,
+                            sub: `${formatRate(pricing.totalUsd)} single payment`,
                           },
                         ] as const
                       ).map((plan) => {
@@ -607,7 +614,7 @@ export function TierModal() {
                       <div className="text-right">
                         <p className="text-[11px] text-ink-mute">Total Quote</p>
                         <p className="font-display text-2xl font-semibold text-ink">
-                          {formatMoney(pricing.totalUsd, currency)}
+                          {formatRate(pricing.totalUsd)}
                         </p>
                       </div>
                     </div>
@@ -728,11 +735,11 @@ export function TierModal() {
                     </span>
                     <div className="flex items-baseline gap-1.5">
                       <span className="font-display text-2xl font-semibold text-ink sm:text-3xl">
-                        {formatMoney(pricing.depositUsd, currency)}
+                        {formatRate(pricing.depositUsd)}
                       </span>
                       {draft.paymentSplit === '50_50' && (
                         <span className="text-xs text-ink-mute">
-                          of {formatMoney(pricing.totalUsd, currency)} total
+                          of {formatRate(pricing.totalUsd)} total
                         </span>
                       )}
                     </div>
@@ -796,7 +803,12 @@ function SubmissionSuccess({
   onTrack: () => void;
   onNew: () => void;
 }) {
-  const tier = getTier(order.tier);
+  const { tiers, studioSettings } = useStudio();
+  const tier = tiers.find((t) => t.id === order.tier) ?? tiers[0];
+  const fmt = (usd: number) =>
+    order.currency === 'USD'
+      ? `$${usd}`
+      : `₱${Math.round(usd * studioSettings.usdToPhpRate).toLocaleString('en-PH')}`;
   return (
     <div className="flex flex-col items-center py-6 text-center">
       <div className="grid size-14 place-items-center rounded-2xl bg-teal-soft text-teal">
@@ -807,9 +819,9 @@ function SubmissionSuccess({
       </span>
       <h3 className="mt-2 font-display text-3xl font-semibold text-ink">Brief Sent to Meru!</h3>
       <p className="mt-1 max-w-sm text-xs leading-relaxed text-ink-soft">
-        Your <strong>{tier.label}</strong> request ({formatMoney(order.totalUsd, order.currency)}) is now in{' '}
+        Your <strong>{tier.label}</strong> request ({fmt(order.totalUsd)}) is now in{' '}
         <strong>Pending Review</strong>. Once Meru approves your brief, your{' '}
-        <strong>{formatMoney(order.depositUsd, order.currency)}</strong> deposit gate unlocks in the Track Order room.
+        <strong>{fmt(order.depositUsd)}</strong> deposit gate unlocks in the Track Order room.
       </p>
 
       <div className="mt-5 w-full rounded-2xl border border-line bg-canvas p-3.5 text-left text-xs space-y-1.5">
