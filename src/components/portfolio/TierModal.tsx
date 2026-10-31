@@ -26,11 +26,6 @@ const TIER_PREVIEW: Record<TierId, { slug: string; pos: string }> = {
   graphics: { slug: 'thumb-gacha-gems', pos: 'object-center' },
 };
 
-/**
- * Clean, clutter-free Commission Price Calculator sheet.
- * Designed so every control (Tier, Add-ons, Currency, Payment Split, and Total)
- * fits comfortably on a single phone screen without nested boxes or repeated titles.
- */
 export function TierModal() {
   const { drawerOpen, closeDrawer, selectedTier, commissionTier, openLightbox, showToast } = useStudio();
   const tierId: TierId = selectedTier ?? 'fullbody';
@@ -81,30 +76,26 @@ export function TierModal() {
           exit={{ opacity: 0 }}
           transition={{ duration: 0.2 }}
           onClick={closeDrawer}
-          className="fixed inset-0 z-[85] flex items-end justify-end bg-ink/50 backdrop-blur-sm sm:items-stretch"
+          className="fixed inset-0 z-[85] flex items-end justify-end bg-ink/55 backdrop-blur-sm sm:items-stretch"
         >
           <motion.div
             initial={{ y: '100%' }}
             animate={{ y: 0 }}
             exit={{ y: '100%' }}
-            transition={{ duration: 0.38, ease: EASE }}
+            transition={{ duration: 0.35, ease: EASE }}
             onClick={(e) => e.stopPropagation()}
-            className="flex max-h-[90dvh] w-full flex-col overflow-hidden rounded-t-[28px] border-t border-line bg-paper sm:h-full sm:max-h-none sm:max-w-md sm:rounded-none sm:rounded-l-[32px] sm:border-t-0 sm:border-l"
+            className="flex max-h-[88dvh] w-full flex-col overflow-hidden rounded-t-[28px] border-t border-line bg-paper sm:h-full sm:max-h-none sm:max-w-md sm:rounded-none sm:rounded-l-[32px] sm:border-t-0 sm:border-l"
           >
             {/* Mobile grab handle */}
-            <div className="flex justify-center pt-2.5 sm:hidden">
-              <span className="h-1 w-10 rounded-full bg-line" />
+            <div className="flex justify-center pt-2 sm:hidden">
+              <span className="h-1 w-9 rounded-full bg-line" />
             </div>
 
-            {/* Clean Top Bar: Title + Currency Pill + Close */}
-            <div className="flex items-center justify-between gap-2 px-5 pt-3 pb-3.5 sm:pt-5">
-              <div>
-                <p className="text-[11px] font-medium tracking-wider text-coral uppercase">Instant Quote</p>
-                <h2 className="font-display text-2xl font-semibold text-ink">Commission Calculator</h2>
-              </div>
+            {/* Single-line Header: Title + single-line Currency Toggle + Close */}
+            <div className="flex items-center justify-between gap-2 px-4 pt-2.5 pb-3 sm:px-5 sm:pt-4">
+              <h2 className="font-display text-xl font-semibold text-ink sm:text-2xl">Price Calculator</h2>
 
-              <div className="flex items-center gap-2">
-                {/* Inline currency switcher */}
+              <div className="flex items-center gap-1.5">
                 <div className="inline-flex rounded-full border border-line bg-canvas p-0.5 text-xs font-medium">
                   {(['USD', 'PHP'] as const).map((c) => (
                     <button
@@ -112,7 +103,7 @@ export function TierModal() {
                       type="button"
                       onClick={() => setCurrency(c)}
                       className={cn(
-                        'rounded-full px-2.5 py-1 transition-colors',
+                        'rounded-full px-2.5 py-1 whitespace-nowrap transition-colors',
                         currency === c ? 'bg-ink text-white' : 'text-ink-mute hover:text-ink',
                       )}
                     >
@@ -125,31 +116,32 @@ export function TierModal() {
                   type="button"
                   onClick={closeDrawer}
                   aria-label="Close calculator"
-                  className="grid size-8 place-items-center rounded-full border border-line bg-canvas text-ink-soft transition hover:text-ink"
+                  className="grid size-8 shrink-0 place-items-center rounded-full border border-line bg-canvas text-ink-soft transition hover:text-ink"
                 >
                   <X className="size-4" />
                 </button>
               </div>
             </div>
 
-            {/* Horizontal swipeable Style Selector */}
-            <div className="no-scrollbar flex gap-1.5 overflow-x-auto border-y border-line bg-canvas/60 px-5 py-2.5">
+            {/* 5-Tab Style Selector — fits all 5 tiers across without horizontal scrolling */}
+            <div className="grid grid-cols-5 gap-1 border-y border-line bg-canvas/70 px-3 py-2 sm:px-5">
               {TIERS.map((t) => {
                 const active = t.id === tierId;
+                const shortName = t.id === 'chibi' ? 'Chibi' : t.label;
                 return (
                   <button
                     key={t.id}
                     type="button"
                     onClick={() => commissionTier(t.id)}
                     className={cn(
-                      'shrink-0 rounded-full px-3.5 py-1.5 text-xs font-medium transition-all',
+                      'flex flex-col items-center justify-center rounded-xl py-1.5 text-center transition-all',
                       active
                         ? 'bg-ink text-white shadow-xs'
                         : 'border border-line bg-paper text-ink-soft hover:border-ink/30 hover:text-ink',
                     )}
                   >
-                    {t.label}
-                    <span className={cn('ml-1.5', active ? 'text-mustard' : 'text-ink-mute')}>
+                    <span className="text-[11px] leading-tight font-medium">{shortName}</span>
+                    <span className={cn('mt-0.5 text-[10px] font-semibold', active ? 'text-mustard' : 'text-ink-mute')}>
                       {formatMoney(t.basePriceUsd, currency)}
                     </span>
                   </button>
@@ -157,10 +149,10 @@ export function TierModal() {
               })}
             </div>
 
-            {/* Main body — airy, zero nested card clutter */}
-            <div className="flex-1 space-y-5 overflow-y-auto px-5 py-4">
-              {/* Compact Selected Tier Summary Card */}
-              <div className="flex items-center gap-3.5 rounded-2xl border border-line bg-canvas/70 p-3">
+            {/* Main body — compact spacing so nothing gets cut off at the bottom */}
+            <div className="flex-1 space-y-3.5 overflow-y-auto px-4 py-3.5 sm:space-y-4 sm:px-5 sm:py-4">
+              {/* Selected Tier Summary Card */}
+              <div className="flex items-center gap-3 rounded-2xl border border-line bg-canvas/70 p-2.5 sm:p-3">
                 <button
                   type="button"
                   onClick={() => {
@@ -170,7 +162,7 @@ export function TierModal() {
                     }
                   }}
                   title="Tap to view examples"
-                  className="group relative size-16 shrink-0 overflow-hidden rounded-xl border border-line bg-cream sm:size-20"
+                  className="group relative size-14 shrink-0 overflow-hidden rounded-xl border border-line bg-cream sm:size-16"
                 >
                   <ArtImage
                     slug={preview.slug}
@@ -184,29 +176,37 @@ export function TierModal() {
 
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center justify-between gap-2">
-                    <div className="flex items-center gap-2">
-                      <h3 className="font-display text-xl font-semibold text-ink">{tier.label}</h3>
+                    <div className="flex items-center gap-1.5">
+                      <h3 className="font-display text-lg leading-none font-semibold text-ink sm:text-xl">{tier.label}</h3>
                       <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${accent.soft} ${accent.text}`}>
                         {tier.category}
                       </span>
                     </div>
-                    <span className="font-display text-xl font-semibold text-ink">
+                    <span className="font-display text-lg font-semibold text-ink sm:text-xl">
                       {formatMoney(tier.basePriceUsd, currency)}
                     </span>
                   </div>
 
-                  <p className="mt-0.5 text-xs text-ink-soft">{tier.description}</p>
-                  <p className="mt-1.5 text-[11px] font-medium text-teal">
-                    ✓ {tier.includes.join('  ·  ✓ ')}
-                  </p>
+                  <p className="mt-1 line-clamp-1 text-xs text-ink-soft">{tier.description}</p>
+                  <div className="mt-1.5 flex flex-wrap gap-1">
+                    {tier.includes.map((inc) => (
+                      <span
+                        key={inc}
+                        className="inline-flex items-center gap-1 rounded-md bg-paper px-1.5 py-0.5 text-[10px] font-medium text-ink-soft ring-1 ring-line"
+                      >
+                        <Check className="size-2.5 text-teal" strokeWidth={3} />
+                        {inc}
+                      </span>
+                    ))}
+                  </div>
                 </div>
               </div>
 
-              {/* Add-ons as clean tap chips */}
+              {/* Add-ons */}
               <div>
-                <div className="mb-2 flex items-center justify-between">
+                <div className="mb-1.5 flex items-center justify-between">
                   <span className="text-xs font-medium text-ink">Optional Add-ons</span>
-                  <span className="text-[11px] text-ink-mute">Tap to toggle</span>
+                  <span className="text-[11px] text-ink-mute">Tap to add</span>
                 </div>
                 <div className="grid grid-cols-3 gap-2">
                   {(
@@ -223,25 +223,23 @@ export function TierModal() {
                         type="button"
                         onClick={() => setAddons((a) => ({ ...a, [item.key]: !a[item.key] }))}
                         className={cn(
-                          'flex flex-col items-start justify-between rounded-2xl border p-3 text-left transition-all',
-                          active
-                            ? 'border-ink bg-ink text-white'
-                            : 'border-line bg-paper text-ink hover:border-ink/30',
+                          'flex flex-col items-start justify-between rounded-2xl border p-2.5 text-left transition-all',
+                          active ? 'border-ink bg-ink text-white' : 'border-line bg-paper text-ink hover:border-ink/30',
                         )}
                       >
                         <div className="flex w-full items-center justify-between">
                           <span
                             className={cn(
-                              'rounded-full px-2 py-0.5 text-[10px] font-semibold',
+                              'rounded-full px-1.5 py-0.5 text-[10px] font-semibold',
                               active ? 'bg-mustard text-ink' : 'bg-mustard-soft text-[#b9800f]',
                             )}
                           >
                             {item.rate}
                           </span>
-                          {active && <Check className="size-3.5 text-mustard" strokeWidth={3} />}
+                          {active && <Check className="size-3 text-mustard" strokeWidth={3} />}
                         </div>
-                        <p className="mt-2 font-display text-base leading-tight font-semibold">{item.label}</p>
-                        <p className={cn('text-[11px]', active ? 'text-white/70' : 'text-ink-mute')}>{item.sub}</p>
+                        <p className="mt-1.5 font-display text-sm leading-tight font-semibold sm:text-base">{item.label}</p>
+                        <p className={cn('text-[10px]', active ? 'text-white/70' : 'text-ink-mute')}>{item.sub}</p>
                       </button>
                     );
                   })}
@@ -250,7 +248,7 @@ export function TierModal() {
 
               {/* Payment Split Choice */}
               <div>
-                <span className="mb-2 block text-xs font-medium text-ink">How would you like to pay?</span>
+                <span className="mb-1.5 block text-xs font-medium text-ink">Payment Schedule</span>
                 <div className="grid grid-cols-2 gap-2">
                   {(
                     [
@@ -273,12 +271,12 @@ export function TierModal() {
                         type="button"
                         onClick={() => setSplit(plan.id)}
                         className={cn(
-                          'rounded-2xl border p-3 text-left transition-all',
+                          'rounded-2xl border p-2.5 text-left transition-all',
                           active ? 'border-ink bg-cream/70 ring-1 ring-ink' : 'border-line bg-paper hover:border-ink/30',
                         )}
                       >
                         <div className="flex items-center justify-between">
-                          <span className="font-display text-base font-semibold text-ink">{plan.title}</span>
+                          <span className="font-display text-sm font-semibold text-ink sm:text-base">{plan.title}</span>
                           <span
                             className={cn(
                               'grid size-4 place-items-center rounded-full border',
@@ -288,7 +286,7 @@ export function TierModal() {
                             {active && <Check className="size-2.5" strokeWidth={3} />}
                           </span>
                         </div>
-                        <p className="mt-0.5 text-[11px] text-ink-soft">{plan.sub}</p>
+                        <p className="mt-0.5 text-[10px] text-ink-soft sm:text-[11px]">{plan.sub}</p>
                       </button>
                     );
                   })}
@@ -296,26 +294,24 @@ export function TierModal() {
               </div>
             </div>
 
-            {/* Clean Sticky Footer */}
-            <div className="border-t border-line bg-canvas px-5 py-4">
-              <div className="mb-3 flex items-center justify-between">
+            {/* Sticky Footer */}
+            <div className="border-t border-line bg-canvas px-4 py-3 sm:px-5 sm:py-4">
+              <div className="mb-2.5 flex items-center justify-between">
                 <div>
-                  <span className="text-xs text-ink-mute">
+                  <span className="text-[11px] text-ink-mute">
                     {split === '50' ? 'Due to start (50% deposit)' : 'Total due upfront'}
                   </span>
-                  <div className="flex items-baseline gap-2">
-                    <span className="font-display text-3xl font-semibold text-ink">
+                  <div className="flex items-baseline gap-1.5">
+                    <span className="font-display text-2xl font-semibold text-ink sm:text-3xl">
                       {formatMoney(depositUsd, currency)}
                     </span>
                     {split === '50' && (
-                      <span className="text-xs text-ink-mute">
-                        of {formatMoney(totalUsd, currency)} total
-                      </span>
+                      <span className="text-xs text-ink-mute">of {formatMoney(totalUsd, currency)} total</span>
                     )}
                   </div>
                 </div>
 
-                <span className="rounded-full border border-line bg-paper px-3 py-1 text-[11px] font-medium text-ink-soft">
+                <span className="rounded-full border border-line bg-paper px-2.5 py-1 text-[11px] font-medium text-ink-soft">
                   {currency === 'USD' ? 'PayPal' : 'GCash'}
                 </span>
               </div>
@@ -328,7 +324,7 @@ export function TierModal() {
                     `${tier.label} (${formatMoney(totalUsd, currency)}) saved! Reference upload & submit unlock in Phase 2.`,
                   );
                 }}
-                className="flex w-full items-center justify-center gap-2 rounded-full bg-ink py-3.5 text-sm font-medium text-white transition-colors hover:bg-coral"
+                className="flex w-full items-center justify-center gap-2 rounded-full bg-ink py-3 text-sm font-medium text-white transition-colors hover:bg-coral"
               >
                 <Sparkles className="size-4 text-mustard" />
                 Select {tier.label} · {formatMoney(depositUsd, currency)}

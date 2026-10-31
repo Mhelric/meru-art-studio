@@ -36,6 +36,13 @@ export function Lightbox() {
   const tier = item ? getTier(item.tier) : null;
   const accent = item ? ACCENT_CLASSES[TIER_ACCENT[item.tier]] : null;
 
+  const prevItem = () => {
+    if (index !== null && items.length > 1) setLightboxIndex((index - 1 + items.length) % items.length);
+  };
+  const nextItem = () => {
+    if (index !== null && items.length > 1) setLightboxIndex((index + 1) % items.length);
+  };
+
   return (
     <AnimatePresence>
       {item && tier && accent && index !== null && (
@@ -47,42 +54,46 @@ export function Lightbox() {
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
-          transition={{ duration: 0.25 }}
+          transition={{ duration: 0.22 }}
           onClick={closeLightbox}
-          className="fixed inset-0 z-[80] flex items-center justify-center bg-ink/60 p-4 backdrop-blur-md"
+          className="fixed inset-0 z-[80] flex items-center justify-center bg-ink/65 p-3 backdrop-blur-md sm:p-5"
         >
-          <button
-            onClick={closeLightbox}
-            aria-label="Close"
-            className="absolute top-4 right-4 z-10 grid size-10 place-items-center rounded-full border border-line bg-paper text-ink transition hover:bg-cream"
-          >
-            <X className="size-5" />
-          </button>
-
+          {/* Desktop side arrows */}
           {items.length > 1 && (
             <>
-              <NavArrow side="left" onClick={() => setLightboxIndex((index - 1 + items.length) % items.length)} />
-              <NavArrow side="right" onClick={() => setLightboxIndex((index + 1) % items.length)} />
+              <DesktopNavArrow side="left" onClick={prevItem} />
+              <DesktopNavArrow side="right" onClick={nextItem} />
             </>
           )}
 
           <motion.div
-            initial={{ opacity: 0, scale: 0.95, y: 12 }}
+            initial={{ opacity: 0, scale: 0.96, y: 12 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.96, y: 8 }}
-            transition={{ duration: 0.35, ease: EASE }}
+            transition={{ duration: 0.32, ease: EASE }}
             onClick={(e) => e.stopPropagation()}
-            className="flex max-h-[90vh] w-full max-w-5xl flex-col overflow-hidden rounded-[32px] border border-line bg-paper md:flex-row"
+            className="relative flex max-h-[90dvh] w-full max-w-4xl flex-col overflow-hidden rounded-[28px] border border-line bg-paper shadow-xl md:flex-row"
           >
-            <div className="relative flex min-h-0 flex-1 items-center justify-center bg-cream/60 p-4 sm:p-6">
+            {/* Close button — anchored inside the card so it is never half-outside */}
+            <button
+              type="button"
+              onClick={closeLightbox}
+              aria-label="Close"
+              className="absolute top-3 right-3 z-20 grid size-9 place-items-center rounded-full border border-line bg-paper/95 text-ink shadow-xs backdrop-blur transition hover:bg-cream"
+            >
+              <X className="size-4" />
+            </button>
+
+            {/* Artwork stage — strict height cap + overflow-hidden so tall portraits never spill over the title below */}
+            <div className="relative flex h-[48dvh] shrink-0 items-center justify-center overflow-hidden bg-cream/60 p-3 sm:h-[54dvh] md:h-auto md:max-h-[84dvh] md:flex-1 md:p-6">
               <AnimatePresence mode="wait">
                 <motion.div
                   key={item.id}
                   initial={{ opacity: 0, scale: 0.98 }}
                   animate={{ opacity: 1, scale: 1 }}
                   exit={{ opacity: 0 }}
-                  transition={{ duration: 0.25, ease: EASE }}
-                  className="flex max-h-[58vh] w-full items-center justify-center md:max-h-[82vh]"
+                  transition={{ duration: 0.22, ease: EASE }}
+                  className="flex size-full items-center justify-center"
                 >
                   <ArtImage
                     slug={item.slug}
@@ -90,52 +101,87 @@ export function Lightbox() {
                     size="full"
                     keepAspect={false}
                     eager
-                    className="max-h-[58vh] w-auto rounded-2xl bg-transparent md:max-h-[80vh]"
-                    imgClassName="max-h-[58vh] w-auto object-contain md:max-h-[80vh]"
+                    className="flex size-full items-center justify-center bg-transparent"
+                    imgClassName="max-h-full max-w-full object-contain rounded-xl"
                   />
                 </motion.div>
               </AnimatePresence>
+
+              {/* Mobile prev/next controls right on the image stage */}
+              {items.length > 1 && (
+                <>
+                  <button
+                    type="button"
+                    onClick={prevItem}
+                    aria-label="Previous artwork"
+                    className="absolute top-1/2 left-2.5 grid size-8 -translate-y-1/2 place-items-center rounded-full border border-line bg-paper/90 text-ink shadow-xs backdrop-blur md:hidden"
+                  >
+                    <ChevronLeft className="size-4" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={nextItem}
+                    aria-label="Next artwork"
+                    className="absolute top-1/2 right-2.5 grid size-8 -translate-y-1/2 place-items-center rounded-full border border-line bg-paper/90 text-ink shadow-xs backdrop-blur md:hidden"
+                  >
+                    <ChevronRight className="size-4" />
+                  </button>
+                </>
+              )}
             </div>
 
-            <div className="flex w-full shrink-0 flex-col gap-5 border-t border-line p-6 md:w-80 md:border-t-0 md:border-l">
-              <div>
-                <span className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium ${accent.soft} ${accent.text}`}>
-                  <span className={`size-1.5 rounded-full ${accent.dot}`} />
-                  {tier.category} · {tier.label}
-                </span>
-                <h3 className="mt-3 font-display text-3xl font-semibold text-ink">{item.title}</h3>
-                <p className="mt-1 text-xs text-ink-mute">
-                  Piece {index + 1} of {items.length}
-                </p>
-              </div>
-
-              <div className="flex flex-wrap gap-1.5">
-                {item.tags.map((t) => (
-                  <span key={t} className="chip">
-                    {t}
+            {/* Info & CTA panel */}
+            <div className="flex flex-1 flex-col justify-between gap-3.5 overflow-y-auto border-t border-line bg-paper p-4 sm:p-6 md:w-80 md:flex-none md:border-t-0 md:border-l">
+              <div className="space-y-3">
+                <div className="flex items-center justify-between gap-2">
+                  <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium ${accent.soft} ${accent.text}`}>
+                    <span className={`size-1.5 rounded-full ${accent.dot}`} />
+                    {tier.category} · {tier.label}
                   </span>
-                ))}
+                  <span className="text-xs font-medium text-ink-mute">
+                    {index + 1} / {items.length}
+                  </span>
+                </div>
+
+                <div>
+                  <h3 className="font-display text-2xl leading-tight font-semibold text-ink sm:text-3xl">
+                    {item.title}
+                  </h3>
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    {item.tags.map((t) => (
+                      <span key={t} className="chip py-0.5 text-[11px]">
+                        {t}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-between gap-3 rounded-2xl border border-line bg-canvas px-3.5 py-2.5">
+                  <div>
+                    <p className="text-[11px] font-medium text-ink-mute">{tier.label} base rate</p>
+                    <p className="text-xs text-ink-soft">{tier.description}</p>
+                  </div>
+                  <p className="shrink-0 font-display text-2xl font-semibold text-ink">
+                    {formatUsd(tier.basePriceUsd)}
+                  </p>
+                </div>
               </div>
 
-              <div className="rounded-2xl border border-line bg-canvas p-4">
-                <p className="text-xs font-medium text-ink-mute">{tier.label} tier starts at</p>
-                <p className="mt-1 font-display text-3xl font-semibold text-ink">
-                  {formatUsd(tier.basePriceUsd)}
-                  {tier.priceNote && <span className="ml-1 font-sans text-xs font-normal text-ink-mute">/ {tier.priceNote}</span>}
+              <div className="space-y-2 pt-1">
+                <button
+                  type="button"
+                  onClick={() => {
+                    closeLightbox();
+                    commissionTier(item.tier);
+                  }}
+                  className="inline-flex w-full items-center justify-center gap-2 rounded-full bg-ink px-5 py-3 text-sm font-medium text-white transition-colors hover:bg-coral"
+                >
+                  <Sparkles className="size-4 text-mustard" /> Commission This Style ({formatUsd(tier.basePriceUsd)})
+                </button>
+                <p className="hidden text-center text-[11px] text-ink-mute md:block">
+                  Use ← → arrow keys to browse · Esc to close
                 </p>
-                <p className="mt-1 text-xs text-ink-soft">{tier.description}</p>
               </div>
-
-              <button
-                onClick={() => {
-                  closeLightbox();
-                  commissionTier(item.tier);
-                }}
-                className="mt-auto inline-flex items-center justify-center gap-2 rounded-full bg-ink px-5 py-3.5 text-sm font-medium text-white transition-colors hover:bg-coral"
-              >
-                <Sparkles className="size-4" /> Commission This Style
-              </button>
-              <p className="text-center text-[11px] text-ink-mute">Use ← → arrow keys to browse · Esc to close</p>
             </div>
           </motion.div>
         </motion.div>
@@ -144,10 +190,11 @@ export function Lightbox() {
   );
 }
 
-function NavArrow({ side, onClick }: { side: 'left' | 'right'; onClick: () => void }) {
+function DesktopNavArrow({ side, onClick }: { side: 'left' | 'right'; onClick: () => void }) {
   const Icon = side === 'left' ? ChevronLeft : ChevronRight;
   return (
     <button
+      type="button"
       onClick={(e) => {
         e.stopPropagation();
         onClick();
