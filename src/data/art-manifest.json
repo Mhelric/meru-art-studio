@@ -1,0 +1,87 @@
+{
+  "thumb-gacha-gems": {
+    "w": 1280,
+    "h": 720,
+    "blur": "data:image/webp;base64,UklGRmwAAABXRUJQVlA4IGAAAAAQAgCdASoQAAkAA4BaJbACdAD7jlDF+hMgAP3jZAonjU3dO+SXMo3CauR/k8O7ftXyEoRr3+MK9ZFCLBMVKS5tDajjSYNi73ySeKoABRYwXPp3qZlUPU639UW+0kMLAAA="
+  },
+  "thumb-first-pc": {
+    "w": 1280,
+    "h": 720,
+    "blur": "data:image/webp;base64,UklGRmoAAABXRUJQVlA4IF4AAAAwAgCdASoQAAkAA4BaJbACdAYqXm/xjJwUAAD+5pinIpaY47gB1y4JLX/N3Ne5Il7q3+RprXYg37F7lB0pJB9UrTPOjC2zAHwK1KoHeJ28qJW9ebQTKNMAGva9gAAA"
+  },
+  "logo-meru-inc": {
+    "w": 500,
+    "h": 500,
+    "blur": "data:image/webp;base64,UklGRlIAAABXRUJQVlA4IEYAAAAQAgCdASoQABAAA4BaJZwAD5Dwb1dB2XEAAP74sGw2rY+xr8vFPu8m5XtCBQYHw/LqT7erFC4sVdTxBi3A21XGE+mzQAAA"
+  },
+  "thumb-fix-your-life": {
+    "w": 1280,
+    "h": 720,
+    "blur": "data:image/webp;base64,UklGRm4AAABXRUJQVlA4IGIAAADwAQCdASoQAAkAA4BaJbACdAC1wZaAsAAA/n1jOtDQkl7T4fze9v7HLYy3WsFOKpkeL9emjIDSn4juSxysorJkM338a+MLoB68YAweY36bjcUjybnqRk886KTfUOXtXgAAAA=="
+  },
+  "chibi-universe": {
+    "w": 500,
+    "h": 500,
+    "blur": "data:image/webp;base64,UklGRnQAAABXRUJQVlA4IGgAAABwAgCdASoQABAAA4BaJbACdH8AFXpvgDH0VvJAAP73/1PEtp1XUZbyZnKpCFOYpq7MId5yYcKsgwFlp3ifBkEvnwdUKTkPnZcdUbRCMdCWd4Jr7wg2wylzxpa6WkJWsG2L8nMa4IwAAA=="
+  },
+  "thumb-teen-regrets": {
+    "w": 1280,
+    "h": 720,
+    "blur": "data:image/webp;base64,UklGRlYAAABXRUJQVlA4IEoAAACwAQCdASoQAAkAA4BaJQAAUniBeuPAAP7c+jtVXt2TGpiidr20uH/d7ddmeECUjWxTO/SsKDC8nyI8Jd3+8JJCaQHhUPnq1SAAAA=="
+  },
+  "idoltav-poster": {
+    "w": 1272,
+    "h": 1800,
+    "blur": "data:image/webp;base64,UklGRpIAAABXRUJQVlA4IIYAAAAwBACdASoQABcAPu1iqk2ppaQiMAgBMB2JYwC/OCHpVFMNjYAx7E5+lAAA/tW8jvcdKal0c87WmvB34UaEOawbtGnSZ0lkd977CEXJZ6R2gaihtMMpvnS8fkIrqXX8pODs1Ixj/SUZZiB9ti18aser/DCcTW0xdb/GAv6SmG6Qt0fvFQAAAA=="
+  },
+  "masked-gentleman": {
+    "w": 1350,
+    "h": 1800,
+    "blur": "data:image/webp;base64,UklGRqAAAABXRUJQVlA4IJQAAAAwBACdASoQABUAPu1iqU2ppaOiMAgBMB2JbACdMoADTp6yswZOQTzPDgAA/ufjHqTOpe9gyMMSF+Oujb17+efsq1ZX2Psz3V1Pg4TCMHNGG6+1BjS1dV9FvX4k7NQzU/gmsU2a6Dl3Rbvu7rIRAr5mfn4nWL/GKE+VfGlu8SWQs5Gkq7bnWXtha6xsblvtjINuAAAA"
+  },
+  "uniform-commission": {
+    "w": 1350,
+    "h": 1800,
+    "blur": "data:image/webp;base64,UklGRoYAAABXRUJQVlA4IHoAAAAwBACdASoQABUAPu1iqU2ppaOiMAgBMB2JZwAEQL8YqHqxxCM9mUh0DIAA/vOCuUP35R9+RaKBFBHta8Y36xX0QWv7g5669Pa54bPGEkQWX8vtrgHjt7MGUObDK94hTt4TWenz0vtlJyjc2h/4c6HtBwSWk3K61KdoAA=="
+  },
+  "deku-inktober": {
+    "w": 1350,
+    "h": 1800,
+    "blur": "data:image/webp;base64,UklGRsQAAABXRUJQVlA4ILgAAABwBACdASoQABUAPu1iqU2ppaOiMAgBMB2JbAC7MoMYA0XNVJfOkp+LZILfoAD+7joV8gg1X6tVoT2cjbyREcS++W3fuMSYreCxG4RbPOdRieCtRog/xWqtcqY4l79qeOHOsCi5Vwj3eyNgNxMGGXPrH03y+ZCNP6WAp3yOGHVuvJUW+vxsSx9mKDNfcK90mpzwt0j9dDpiM0xp6Ge/jGj2wmMMBzo2e3lo18HekRoZEssG8kyYAAAA"
+  },
+  "frieren-party": {
+    "w": 1800,
+    "h": 1272,
+    "blur": "data:image/webp;base64,UklGRl4AAABXRUJQVlA4IFIAAADQAQCdASoQAAsAA4BaJQAAXOpgfq2UAAD++LAtWzk94wk/voa3/PuAzO1lB5Vx0/RgDb4AHbLefhJi5x465f6yZAmQRjQsKFQ2hj8lRPwAQAAA"
+  },
+  "kitsunegem": {
+    "w": 1350,
+    "h": 1800,
+    "blur": "data:image/webp;base64,UklGRoIAAABXRUJQVlA4IHYAAADwAwCdASoQABUAPu1iqU2ppaOiMAgBMB2JYwAAW+vk7yoPd+JKtHMwAP7zfw9lCycCOjqbHEHYwEubB8/h3KsymjouaLP2VGbteq6PR9m9I8DqrxtdF/4OhFECLtO8f4a60A3Z8Ksl8ANyLBkF+/Y5m7MjsmAA"
+  },
+  "loona-helluva": {
+    "w": 1650,
+    "h": 1650,
+    "blur": "data:image/webp;base64,UklGRmgAAABXRUJQVlA4IFwAAABQAgCdASoQABAAA4BaJYwC7AYvD2/0VtPHhigA/vgZcRZwEVkrm9WCzgTVOWsxdkbFuvAZoV91vBoMXY4e7UwQAUlYQk/KMEzBSQMgs5KlT306s8tknulOIXkAAA=="
+  },
+  "meru-ref-sheet": {
+    "w": 1800,
+    "h": 1273,
+    "blur": "data:image/webp;base64,UklGRngAAABXRUJQVlA4IGwAAABQAgCdASoQAAsAA4BaJZwAD4uvLutDO0lJSPAA/vCuqcSdmod9oSanettIccLxvonzaXnqkROZdW9fX/Z79QTI3NABvPVifYlK9Z17cNFLvqcV8+du8c7yRoxsKQzkK4vx9V3Z+UB5iDSgAAA="
+  },
+  "momo-ayase": {
+    "w": 1273,
+    "h": 1800,
+    "blur": "data:image/webp;base64,UklGRp4AAABXRUJQVlA4IJIAAABQBACdASoQABcAPu1iqU2ppaOiMAgBMB2JQBOgMZPWz7yP63fZH/BlrmwwAP6cI+XfryZ8VJpw8RcD+HOek7mZm55CgSApH7i4yb7Fn0+nFvp7m47Jm/Rod9+g3eW0Eo5pjWj7MFMtU11f6wfE2X8k6pY/LxrAel+RndlkDAvHNZEJW/sShytncg3u4dOYjuI4AA=="
+  },
+  "robin-egghead": {
+    "w": 1273,
+    "h": 1800,
+    "blur": "data:image/webp;base64,UklGRo4AAABXRUJQVlA4IIIAAABwBACdASoQABcAPu1mqk2ppaQiMAgBMB2JYwDHE8AgoBb/uwvo4Y9FITtUOAD+84CbQRcGZm/cQm+mgeG11s6wUQx17Wl+SfkbIy7asMWKOPJCk210ZgzO2f5XAhf/O6ofJ9ihH+ozqlpL28D1jtD0KHJ/kJGXQBKf+3+KgQFd8AAA"
+  },
+  "velimer-dnd": {
+    "w": 1350,
+    "h": 1800,
+    "blur": "data:image/webp;base64,UklGRroAAABXRUJQVlA4IK4AAAAwBACdASoQABUAPu1iqU2ppaOiMAgBMB2JaAC7ACHpVvF/Jj2H8HTpTAAA/vH99E+rSh88Fs71V5YFiokjn0WLquPrn4QY456emw+KXBH885fa8J6ftqQJzoJ78LAIxvJGG2tIwhaICbODQEOrlGxDj5jHNG3+pWDi9a4P3P3H7mAxgowdJ3vy5DZOk56wFNf9Cv+9r/A9Q/kMFMRZFPQ0YD5cDhFkTcwE4+YAAAA="
+  }
+}

@@ -1,0 +1,111 @@
+@import 'tailwindcss';
+
+/*
+ * Design language: light, airy & flat (inspired by nicolearoberts.com) —
+ * warm cream canvas, ink text, generous whitespace, 24/40px radii, hairline
+ * borders, no heavy shadows. Accent palette is sampled from the Meru Art logo.
+ */
+@theme {
+  --font-sans: 'Rubik', ui-sans-serif, system-ui, sans-serif;
+  --font-display: 'Afacad', 'Rubik', ui-sans-serif, sans-serif;
+
+  --color-canvas: #fffaf3; /* page background */
+  --color-paper: #ffffff; /* cards */
+  --color-cream: #fdf3e3; /* warm tint */
+  --color-line: #efe7da; /* hairline borders */
+
+  --color-ink: #1f1640; /* logo indigo — headings */
+  --color-ink-soft: #4f4865; /* body text */
+  --color-ink-mute: #8a8398; /* captions */
+
+  --color-coral: #ef6f62;
+  --color-coral-soft: #fde8e4;
+  --color-peach: #f7b78a;
+  --color-mustard: #f4b13f;
+  --color-mustard-soft: #fdf1d8;
+  --color-lilac: #b98ad6;
+  --color-lilac-soft: #f3eafa;
+  --color-teal: #1f9f98;
+  --color-teal-soft: #e5f5f3;
+
+  --ease-out-expo: cubic-bezier(0.22, 1, 0.36, 1);
+
+  --animate-marquee-up: marquee-up var(--marquee-duration, 40s) linear infinite;
+  --animate-marquee-down: marquee-down var(--marquee-duration, 40s) linear infinite;
+  --animate-marquee-x: marquee-x var(--marquee-duration, 50s) linear infinite;
+
+  @keyframes marquee-up {
+    from { transform: translateY(0); }
+    to { transform: translateY(-50%); }
+  }
+  @keyframes marquee-down {
+    from { transform: translateY(-50%); }
+    to { transform: translateY(0); }
+  }
+  @keyframes marquee-x {
+    from { transform: translateX(0); }
+    to { transform: translateX(-50%); }
+  }
+}
+
+@layer base {
+  html {
+    color-scheme: light;
+    -webkit-tap-highlight-color: transparent;
+  }
+  html.lenis,
+  html.lenis body {
+    height: auto;
+  }
+  .lenis.lenis-smooth {
+    scroll-behavior: auto !important;
+  }
+  .lenis.lenis-stopped {
+    overflow: hidden;
+  }
+  body {
+    @apply bg-canvas font-sans text-ink-soft antialiased;
+    font-size: 15px;
+  }
+  h1, h2, h3, h4 {
+    @apply font-display text-ink;
+    letter-spacing: -0.01em;
+  }
+  ::selection {
+    @apply bg-coral/25 text-ink;
+  }
+  :focus-visible {
+    @apply outline-2 outline-offset-2 outline-coral;
+  }
+  img {
+    -webkit-user-drag: none;
+  }
+}
+
+@utility card {
+  @apply rounded-3xl border border-line bg-paper;
+}
+
+@utility chip {
+  @apply inline-flex items-center gap-1.5 rounded-full border border-line bg-paper px-3 py-1 text-xs font-medium text-ink-soft;
+}
+
+@utility eyebrow {
+  @apply font-sans text-xs font-medium tracking-[0.18em] text-coral uppercase;
+}
+
+/* Fade the edges of marquee tracks */
+@utility mask-fade-y {
+  mask-image: linear-gradient(to bottom, transparent, #000 12%, #000 88%, transparent);
+}
+@utility mask-fade-x {
+  mask-image: linear-gradient(to right, transparent, #000 8%, #000 92%, transparent);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
