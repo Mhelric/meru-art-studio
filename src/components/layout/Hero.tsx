@@ -11,13 +11,11 @@ import type { PortfolioItem } from '@/types';
 
 /**
  * Editorial split hero inspired by nicolearoberts.com —
- * Left: "Welcome! I'm Meru" badge, Afacad display headline with rotating phrase,
- * identity chips, CTAs.
- * Right: Immediate dual-column vertical marquee of real artwork (plus mobile
- * horizontal showcase) that opens the Lightbox on click.
+ * Mobile-first: shows the greeting badge, headline, and an immediate artwork
+ * showcase strip right above the fold before the secondary details.
  */
 export function Hero() {
-  const { setActiveTab, openLightbox } = useStudio();
+  const { setActiveTab, openLightbox, openDrawer } = useStudio();
   const [phraseIdx, setPhraseIdx] = useState(0);
 
   useEffect(() => {
@@ -38,22 +36,22 @@ export function Hero() {
   };
 
   return (
-    <section className="relative pt-28 pb-16 sm:pt-32 lg:pt-28 lg:pb-24">
-      <div className="grid items-center gap-10 lg:grid-cols-12 lg:gap-12">
-        {/* Left editorial column */}
-        <div className="lg:col-span-6">
+    <section className="relative pt-32 pb-12 sm:pt-36 lg:pt-28 lg:pb-24">
+      <div className="grid items-center gap-8 lg:grid-cols-12 lg:gap-12">
+        {/* Left editorial column — min-w-0 prevents the wide marquee track from stretching the CSS grid track on mobile */}
+        <div className="min-w-0 lg:col-span-6">
           <Reveal immediate>
-            <div className="inline-flex items-center gap-2.5 rounded-full border border-line bg-paper py-1.5 pr-4 pl-2">
-              <img src="/brand/mark-192.png" alt="" className="size-7 rounded-full border border-line object-cover" />
+            <div className="inline-flex items-center gap-2 rounded-full border border-line bg-paper py-1 pr-3.5 pl-1.5 sm:gap-2.5 sm:py-1.5 sm:pr-4 sm:pl-2">
+              <img src="/brand/mark-192.png" alt="" className="size-6 rounded-full border border-line object-cover sm:size-7" />
               <span className="text-xs font-medium text-ink">Welcome! I’m {ARTIST.nickname}</span>
-              <span className="inline-flex items-center gap-1.5 rounded-full bg-teal-soft px-2.5 py-0.5 text-[11px] font-medium text-teal">
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-teal-soft px-2 py-0.5 text-[11px] font-medium text-teal">
                 <span className="size-1.5 rounded-full bg-teal" />
                 Open
               </span>
             </div>
           </Reveal>
 
-          <h1 className="mt-6 font-display text-4xl leading-[1.06] font-semibold tracking-tight text-ink sm:text-5xl lg:text-[56px]">
+          <h1 className="mt-4 font-display text-[34px] leading-[1.08] font-semibold tracking-tight text-ink sm:mt-6 sm:text-5xl lg:text-[56px]">
             <WordReveal text="I bring your characters to life through" delay={0.1} stagger={0.045} />{' '}
             <span className="relative inline-block align-bottom">
               <AnimatePresence mode="wait">
@@ -63,7 +61,7 @@ export function Hero() {
                   animate={{ y: 0, opacity: 1, filter: 'blur(0px)' }}
                   exit={{ y: '-80%', opacity: 0, filter: 'blur(6px)' }}
                   transition={{ duration: 0.55, ease: EASE }}
-                  className="inline-block italic text-coral underline decoration-mustard/70 decoration-wavy decoration-2 underline-offset-8"
+                  className="inline-block italic text-coral underline decoration-mustard/70 decoration-wavy decoration-2 underline-offset-4 sm:underline-offset-8"
                 >
                   {ARTIST.rotating[phraseIdx]}.
                 </motion.span>
@@ -71,49 +69,70 @@ export function Hero() {
             </span>
           </h1>
 
-          <Reveal immediate delay={0.35}>
-            <p className="mt-6 max-w-xl text-base leading-relaxed text-ink-soft sm:text-[17px]">
-              {ARTIST.tagline} Browse real commissions & fanart right here, pick a tier, and lock in your slot with clear upfront or 50/50 pricing.
-            </p>
-          </Reveal>
-
-          {/* Identity & policy chips (Nicole Roberts style metadata pills) */}
-          <Reveal immediate delay={0.45}>
-            <div className="mt-6 flex flex-wrap gap-2">
-              {ARTIST.roles.map((r) => (
-                <span key={r} className="chip">
-                  <Sparkles className="size-3.5 text-coral" />
-                  {r}
-                </span>
-              ))}
-              <span className="chip">Turnaround · {ARTIST.turnaround}</span>
-              <span className="chip">PayPal (USD) · GCash (PHP)</span>
-              <span className="chip border-coral/30 bg-coral-soft text-coral">Strictly No NFTs</span>
+          {/* Mobile & tablet immediate art showcase — placed RIGHT under the headline so art is visible on open */}
+          <Reveal immediate delay={0.22} className="mt-6 w-full overflow-hidden lg:hidden">
+            <div className="mask-fade-x overflow-hidden py-1">
+              <div
+                className="flex w-max animate-marquee-x gap-3 active:[animation-play-state:paused]"
+                style={{ '--marquee-duration': '42s' } as React.CSSProperties}
+              >
+                {[...featured, ...featured].map((item, i) => (
+                  <ShowcaseCard
+                    key={`${item.id}-${i}`}
+                    item={item}
+                    onSelect={openPiece}
+                    compact
+                    className="w-40 shrink-0 sm:w-52"
+                  />
+                ))}
+              </div>
             </div>
           </Reveal>
 
-          {/* CTAs */}
-          <Reveal immediate delay={0.55}>
-            <div className="mt-8 flex flex-wrap items-center gap-3">
+          <Reveal immediate delay={0.3}>
+            <p className="mt-5 max-w-xl text-sm leading-relaxed text-ink-soft sm:mt-6 sm:text-[17px]">
+              {ARTIST.tagline} Tap any artwork to inspect it closely, or pick a commission tier with live USD & PHP pricing.
+            </p>
+          </Reveal>
+
+          {/* Primary CTAs */}
+          <Reveal immediate delay={0.4}>
+            <div className="mt-6 flex flex-wrap items-center gap-2.5 sm:mt-8 sm:gap-3">
               <button
-                onClick={() => scrollToTarget('#gallery')}
-                className="group inline-flex items-center gap-2 rounded-full bg-ink px-6 py-3.5 text-sm font-medium text-white transition-all duration-300 hover:bg-coral"
+                onClick={() => openDrawer()}
+                className="group inline-flex flex-1 items-center justify-center gap-2 rounded-full bg-ink px-5 py-3 text-xs font-medium text-white transition-all duration-300 hover:bg-coral sm:flex-none sm:px-6 sm:py-3.5 sm:text-sm"
               >
-                Explore Portfolio ({PORTFOLIO.length})
-                <ArrowDownRight className="size-4 transition-transform duration-300 group-hover:translate-x-0.5 group-hover:translate-y-0.5" />
+                <Sparkles className="size-4 text-mustard" />
+                Commission Calculator
               </button>
               <button
-                onClick={() => scrollToTarget('#pricing')}
-                className="rounded-full border border-line bg-paper px-6 py-3.5 text-sm font-medium text-ink transition-colors hover:border-ink/30 hover:bg-cream"
+                onClick={() => scrollToTarget('#gallery')}
+                className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-full border border-line bg-paper px-5 py-3 text-xs font-medium text-ink transition-colors hover:border-ink/30 hover:bg-cream sm:flex-none sm:px-6 sm:py-3.5 sm:text-sm"
               >
-                View Commission Rates
+                Portfolio ({PORTFOLIO.length})
+                <ArrowDownRight className="size-4" />
               </button>
               <button
                 onClick={() => setActiveTab('rules')}
-                className="px-3 py-2 text-sm font-medium text-ink-soft underline decoration-line underline-offset-4 transition-colors hover:text-ink hover:decoration-ink"
+                className="w-full py-1 text-center text-xs font-medium text-ink-soft underline decoration-line underline-offset-4 transition-colors hover:text-ink sm:w-auto sm:px-3 sm:py-2 sm:text-sm"
               >
                 Rules & TOS →
               </button>
+            </div>
+          </Reveal>
+
+          {/* Identity & policy chips */}
+          <Reveal immediate delay={0.5}>
+            <div className="mt-5 flex flex-wrap gap-1.5 sm:mt-6 sm:gap-2">
+              {ARTIST.roles.map((r) => (
+                <span key={r} className="chip text-[11px] sm:text-xs">
+                  <Sparkles className="size-3 text-coral" />
+                  {r}
+                </span>
+              ))}
+              <span className="chip text-[11px] sm:text-xs">Turnaround · {ARTIST.turnaround}</span>
+              <span className="chip text-[11px] sm:text-xs">PayPal · GCash</span>
+              <span className="chip border-coral/30 bg-coral-soft text-[11px] text-coral sm:text-xs">No NFTs</span>
             </div>
           </Reveal>
         </div>
@@ -126,20 +145,6 @@ export function Hero() {
           </div>
         </Reveal>
       </div>
-
-      {/* Mobile & tablet immediate horizontal art strip */}
-      <Reveal immediate delay={0.3} className="mt-10 lg:hidden">
-        <div className="mask-fade-x overflow-hidden">
-          <div
-            className="flex w-max animate-marquee-x gap-3.5 hover:[animation-play-state:paused]"
-            style={{ '--marquee-duration': '48s' } as React.CSSProperties}
-          >
-            {[...featured, ...featured].map((item, i) => (
-              <ShowcaseCard key={`${item.id}-${i}`} item={item} onSelect={openPiece} className="w-52 shrink-0 sm:w-60" />
-            ))}
-          </div>
-        </div>
-      </Reveal>
     </section>
   );
 }
@@ -173,10 +178,12 @@ function MarqueeColumn({
 function ShowcaseCard({
   item,
   onSelect,
+  compact = false,
   className = '',
 }: {
   item: PortfolioItem;
   onSelect: (item: PortfolioItem) => void;
+  compact?: boolean;
   className?: string;
 }) {
   const tier = getTier(item.tier);
@@ -186,23 +193,25 @@ function ShowcaseCard({
     <button
       type="button"
       onClick={() => onSelect(item)}
-      className={`group card relative block overflow-hidden p-2 text-left transition-colors hover:border-ink/25 ${className}`}
+      className={`group card relative block overflow-hidden p-1.5 text-left transition-colors hover:border-ink/25 sm:p-2 ${className}`}
     >
-      <div className="overflow-hidden rounded-2xl">
+      <div className={compact ? 'aspect-[4/5] overflow-hidden rounded-xl sm:rounded-2xl' : 'overflow-hidden rounded-2xl'}>
         <ArtImage
           slug={item.slug}
           alt={item.title}
           size="sm"
           eager
-          imgClassName="group-hover:scale-[1.04]"
+          keepAspect={!compact}
+          className={compact ? 'size-full' : undefined}
+          imgClassName={compact ? 'size-full object-cover object-top group-hover:scale-[1.04]' : 'group-hover:scale-[1.04]'}
         />
       </div>
-      <div className="flex items-center justify-between gap-2 px-2 pt-2.5 pb-1">
+      <div className="flex items-center justify-between gap-1.5 px-1.5 pt-2 pb-0.5 sm:px-2 sm:pt-2.5 sm:pb-1">
         <div className="min-w-0">
-          <p className="truncate font-display text-base font-semibold text-ink">{item.title}</p>
-          <p className="text-xs text-ink-mute">{tier.label}</p>
+          <p className="truncate font-display text-sm font-semibold text-ink sm:text-base">{item.title}</p>
+          <p className="truncate text-[11px] text-ink-mute sm:text-xs">{tier.label}</p>
         </div>
-        <span className={`shrink-0 rounded-full px-2.5 py-0.5 text-xs font-medium ${accent.soft} ${accent.text}`}>
+        <span className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium sm:px-2.5 sm:text-xs ${accent.soft} ${accent.text}`}>
           {formatUsd(tier.basePriceUsd)}
         </span>
       </div>

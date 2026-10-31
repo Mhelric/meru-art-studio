@@ -64,7 +64,7 @@
     overflow: hidden;
   }
   body {
-    @apply bg-canvas font-sans text-ink-soft antialiased;
+    @apply overflow-x-hidden bg-canvas font-sans text-ink-soft antialiased;
     font-size: 15px;
   }
   h1, h2, h3, h4 {
@@ -100,6 +100,13 @@
 }
 @utility mask-fade-x {
   mask-image: linear-gradient(to right, transparent, #000 8%, #000 92%, transparent);
+}
+@utility no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+  &::-webkit-scrollbar {
+    display: none;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {

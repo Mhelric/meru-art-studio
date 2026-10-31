@@ -1,6 +1,6 @@
 import { AnimatePresence, LayoutGroup, motion } from 'framer-motion';
 import { ArrowUpRight, Sparkles } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import { PORTFOLIO, TIERS } from '@/data/artist';
 import { useStudio } from '@/context/StudioContext';
 import { ACCENT_CLASSES, TIER_ACCENT, cn, formatUsd, getTier } from '@/lib/utils';
@@ -15,10 +15,12 @@ const FILTERS: { id: GalleryFilter; label: string }[] = [
 ];
 
 export function Gallery() {
-  const { commissionTier, openLightbox } = useStudio();
-  const [filter, setFilter] = useState<GalleryFilter>('all');
+  const { commissionTier, openLightbox, galleryFilter, setGalleryFilter } = useStudio();
 
-  const items = useMemo(() => (filter === 'all' ? PORTFOLIO : PORTFOLIO.filter((p) => p.tier === filter)), [filter]);
+  const items = useMemo(
+    () => (galleryFilter === 'all' ? PORTFOLIO : PORTFOLIO.filter((p) => p.tier === galleryFilter)),
+    [galleryFilter],
+  );
   const itemIds = useMemo(() => items.map((p) => p.id), [items]);
 
   const counts = useMemo(() => {
@@ -28,26 +30,30 @@ export function Gallery() {
   }, []);
 
   return (
-    <section id="gallery" className="scroll-mt-24 pt-6">
-      <div className="flex flex-col justify-between gap-6 md:flex-row md:items-end">
+    <section id="gallery" className="scroll-mt-28 pt-4 sm:pt-6">
+      <div className="flex flex-col justify-between gap-4 md:flex-row md:items-end md:gap-6">
         <SectionHeading
           eyebrow="Selected Works"
           title="Browse my recent illustrations & graphics"
-          subtitle="Click any piece to inspect full resolution, or commission that exact tier in one click."
+          subtitle="Tap any piece to inspect full resolution, or tap its price pill to commission that style."
         />
 
-        {/* Filter pills */}
-        <div role="tablist" aria-label="Filter portfolio" className="mb-10 flex flex-wrap gap-1.5">
+        {/* Filter pills — horizontal swipeable strip on mobile, wrap on desktop */}
+        <div
+          role="tablist"
+          aria-label="Filter portfolio"
+          className="no-scrollbar -mx-4 mb-6 flex gap-1.5 overflow-x-auto px-4 pb-1 sm:mx-0 sm:mb-10 sm:flex-wrap sm:overflow-visible sm:px-0"
+        >
           {FILTERS.map((f) => {
-            const active = filter === f.id;
+            const active = galleryFilter === f.id;
             return (
               <button
                 key={f.id}
                 role="tab"
                 aria-selected={active}
-                onClick={() => setFilter(f.id)}
+                onClick={() => setGalleryFilter(f.id)}
                 className={cn(
-                  'relative rounded-full px-4 py-2 text-xs font-medium transition-colors sm:text-sm',
+                  'relative shrink-0 rounded-full px-3.5 py-2 text-xs font-medium whitespace-nowrap transition-colors sm:px-4 sm:text-sm',
                   active ? 'text-white' : 'border border-line bg-paper text-ink-soft hover:border-ink/30 hover:text-ink',
                 )}
               >
@@ -68,9 +74,9 @@ export function Gallery() {
         </div>
       </div>
 
-      {/* Editorial masonry grid */}
+      {/* Responsive masonry grid: 2 columns on phones so artwork is compact & scannable, 3 on lg */}
       <LayoutGroup>
-        <motion.div layout className="columns-1 gap-5 sm:columns-2 lg:columns-3">
+        <motion.div layout className="columns-2 gap-3 sm:gap-5 lg:columns-3">
           <AnimatePresence mode="popLayout">
             {items.map((item, i) => {
               const tier = getTier(item.tier);
@@ -83,44 +89,46 @@ export function Gallery() {
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, scale: 0.95 }}
                   transition={{ duration: 0.45, ease: EASE }}
-                  className="group card mb-5 break-inside-avoid overflow-hidden p-2.5 transition-colors hover:border-ink/25"
+                  className="group card mb-3 break-inside-avoid overflow-hidden p-1.5 transition-colors hover:border-ink/25 sm:mb-5 sm:p-2.5"
                 >
                   <button
                     type="button"
                     onClick={() => openLightbox(itemIds, i)}
                     aria-label={`Inspect ${item.title}`}
-                    className="relative block w-full overflow-hidden rounded-2xl text-left"
+                    className="relative block w-full overflow-hidden rounded-xl text-left sm:rounded-2xl"
                   >
                     <ArtImage slug={item.slug} alt={item.title} size="sm" imgClassName="group-hover:scale-[1.03]" />
-                    <span className="absolute top-3 right-3 grid size-8 place-items-center rounded-full border border-line bg-paper/90 text-ink opacity-0 backdrop-blur transition-opacity duration-300 group-hover:opacity-100">
-                      <ArrowUpRight className="size-4" />
+                    <span className="absolute top-2 right-2 grid size-7 place-items-center rounded-full border border-line bg-paper/90 text-ink opacity-0 backdrop-blur transition-opacity duration-300 group-hover:opacity-100 sm:top-3 sm:right-3 sm:size-8">
+                      <ArrowUpRight className="size-3.5 sm:size-4" />
                     </span>
                   </button>
 
-                  <div className="flex items-center justify-between gap-3 px-2 pt-3 pb-1">
+                  <div className="flex flex-col gap-1.5 px-1.5 pt-2 pb-1 sm:flex-row sm:items-center sm:justify-between sm:gap-3 sm:px-2 sm:pt-3">
                     <div className="min-w-0">
-                      <div className="flex flex-wrap items-center gap-1.5">
-                        <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[11px] font-medium ${accent.soft} ${accent.text}`}>
+                      <div className="flex flex-wrap items-center gap-1">
+                        <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium sm:px-2.5 sm:text-[11px] ${accent.soft} ${accent.text}`}>
                           <span className={`size-1.5 rounded-full ${accent.dot}`} />
                           {tier.label}
                         </span>
-                        {item.tags.slice(0, 2).map((t) => (
-                          <span key={t} className="text-xs text-ink-mute">
+                        {item.tags.slice(0, 1).map((t) => (
+                          <span key={t} className="hidden text-xs text-ink-mute sm:inline">
                             · {t}
                           </span>
                         ))}
                       </div>
-                      <h3 className="mt-1 truncate font-display text-xl font-semibold text-ink">{item.title}</h3>
+                      <h3 className="mt-0.5 truncate font-display text-base font-semibold text-ink sm:mt-1 sm:text-xl">
+                        {item.title}
+                      </h3>
                     </div>
 
                     <button
                       type="button"
                       onClick={() => commissionTier(item.tier)}
                       title={`Commission ${tier.label} (${formatUsd(tier.basePriceUsd)})`}
-                      className="inline-flex shrink-0 items-center gap-1 rounded-full border border-line bg-canvas px-3 py-1.5 text-xs font-medium text-ink transition-colors hover:border-ink hover:bg-ink hover:text-white"
+                      className="inline-flex w-full shrink-0 items-center justify-center gap-1 rounded-full border border-line bg-canvas px-2.5 py-1 text-[11px] font-medium text-ink transition-colors hover:border-ink hover:bg-ink hover:text-white sm:w-auto sm:px-3 sm:py-1.5 sm:text-xs"
                     >
                       <Sparkles className="size-3 text-coral" />
-                      {formatUsd(tier.basePriceUsd)}
+                      <span>Commission · {formatUsd(tier.basePriceUsd)}</span>
                     </button>
                   </div>
                 </motion.article>

@@ -11,6 +11,7 @@ import { IntroSplash } from '@/components/layout/IntroSplash';
 import { Gallery } from '@/components/portfolio/Gallery';
 import { PricingCards } from '@/components/portfolio/PricingCards';
 import { Lightbox } from '@/components/portfolio/Lightbox';
+import { TierModal } from '@/components/portfolio/TierModal';
 import { CanCantCards } from '@/components/rules/CanCantCards';
 import { TosAccordion } from '@/components/rules/TosAccordion';
 import { SectionHeading } from '@/components/ui/SectionHeading';
@@ -32,7 +33,7 @@ export default function App() {
   }, []);
 
   return (
-    <div className="min-h-screen">
+    <div className="min-h-screen overflow-x-clip">
       <AnimatePresence>{showSplash && <IntroSplash onDone={finishSplash} />}</AnimatePresence>
 
       <NavBar />
@@ -102,6 +103,7 @@ export default function App() {
       </main>
 
       <Lightbox />
+      <TierModal />
       <Footer />
       <Toast />
     </div>

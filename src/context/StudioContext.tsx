@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import type { TabId, TierId } from '@/types';
+import type { GalleryFilter, TabId, TierId } from '@/types';
 import { scrollToTarget } from '@/lib/smoothScroll';
 
 const TAB_IDS: TabId[] = ['portfolio', 'rules', 'schedule', 'track'];
@@ -10,7 +10,6 @@ interface Toast {
 }
 
 interface LightboxState {
-  /** Portfolio item ids that can be browsed with ← → */
   ids: string[];
   index: number;
 }
@@ -18,9 +17,15 @@ interface LightboxState {
 interface StudioState {
   activeTab: TabId;
   setActiveTab: (tab: TabId) => void;
+  galleryFilter: GalleryFilter;
+  setGalleryFilter: (filter: GalleryFilter) => void;
   /** Tier pre-selected via "Commission This Style". Consumed by the Phase 2 order drawer. */
   selectedTier: TierId | null;
   commissionTier: (tier: TierId) => void;
+  /** Opens the interactive Commission Drawer (or Tier Quick-Quote sheet). */
+  drawerOpen: boolean;
+  openDrawer: (tier?: TierId) => void;
+  closeDrawer: () => void;
   lightbox: LightboxState | null;
   openLightbox: (ids: string[], index: number) => void;
   setLightboxIndex: (index: number) => void;
@@ -39,12 +44,13 @@ function readHashTab(): TabId {
 
 export function StudioProvider({ children }: { children: ReactNode }) {
   const [activeTab, setActiveTabState] = useState<TabId>(readHashTab);
-  const [selectedTier, setSelectedTier] = useState<TierId | null>(null);
+  const [galleryFilter, setGalleryFilter] = useState<GalleryFilter>('all');
+  const [selectedTier, setSelectedTier] = useState<TierId | null>('fullbody');
+  const [drawerOpen, setDrawerOpen] = useState(false);
   const [lightbox, setLightbox] = useState<LightboxState | null>(null);
   const [toast, setToast] = useState<Toast | null>(null);
   const toastTimer = useRef<number | undefined>(undefined);
 
-  // Keep tab in sync with the URL hash so tabs are linkable & back-button friendly.
   useEffect(() => {
     const onHash = () => setActiveTabState(readHashTab());
     window.addEventListener('hashchange', onHash);
@@ -65,14 +71,17 @@ export function StudioProvider({ children }: { children: ReactNode }) {
     toastTimer.current = window.setTimeout(() => setToast(null), 3800);
   }, []);
 
-  const commissionTier = useCallback(
-    (tier: TierId) => {
-      setSelectedTier(tier);
-      // Phase 2: this will open the 3-step order drawer with `tier` pre-selected.
-      showToast('Style saved! The order drawer opens here in Phase 2.');
-    },
-    [showToast],
-  );
+  const openDrawer = useCallback((tier?: TierId) => {
+    if (tier) setSelectedTier(tier);
+    setDrawerOpen(true);
+  }, []);
+
+  const closeDrawer = useCallback(() => setDrawerOpen(false), []);
+
+  const commissionTier = useCallback((tier: TierId) => {
+    setSelectedTier(tier);
+    setDrawerOpen(true);
+  }, []);
 
   const openLightbox = useCallback((ids: string[], index: number) => setLightbox({ ids, index }), []);
   const setLightboxIndex = useCallback((index: number) => setLightbox((lb) => (lb ? { ...lb, index } : lb)), []);
@@ -82,8 +91,13 @@ export function StudioProvider({ children }: { children: ReactNode }) {
     () => ({
       activeTab,
       setActiveTab,
+      galleryFilter,
+      setGalleryFilter,
       selectedTier,
       commissionTier,
+      drawerOpen,
+      openDrawer,
+      closeDrawer,
       lightbox,
       openLightbox,
       setLightboxIndex,
@@ -92,7 +106,23 @@ export function StudioProvider({ children }: { children: ReactNode }) {
       showToast,
       dismissToast,
     }),
-    [activeTab, setActiveTab, selectedTier, commissionTier, lightbox, openLightbox, setLightboxIndex, closeLightbox, toast, showToast, dismissToast],
+    [
+      activeTab,
+      setActiveTab,
+      galleryFilter,
+      selectedTier,
+      commissionTier,
+      drawerOpen,
+      openDrawer,
+      closeDrawer,
+      lightbox,
+      openLightbox,
+      setLightboxIndex,
+      closeLightbox,
+      toast,
+      showToast,
+      dismissToast,
+    ],
   );
 
   return <StudioContext.Provider value={value}>{children}</StudioContext.Provider>;
