@@ -1,4 +1,4 @@
-/** Shared domain types. These mirror the Supabase schema planned for Phase 3. */
+/** Shared domain types. These mirror the Supabase schema in supabase/migrations. */
 
 export type TierId = 'headshot' | 'halfbody' | 'fullbody' | 'chibi' | 'graphics';
 
@@ -26,7 +26,7 @@ export interface Tier {
   /** Plural label used by gallery filter chips. */
   filterLabel: string;
   category: 'Illustration' | 'Chibi / Emote' | 'Graphics';
-  /** Base price in USD. Will be sourced from `studio_settings.base_prices_json` in Phase 3. */
+  /** Base price in USD. Sourced from `studio_settings.base_prices_json` when connected. */
   basePriceUsd: number;
   priceNote?: string;
   description: string;
@@ -64,7 +64,7 @@ export interface TosSection {
   points: string[];
 }
 
-/** Public anonymised slot shown on the Availability & Queue Calendar (`public_queue_view` in Phase 3). */
+/** Public anonymised slot shown on the Availability & Queue Calendar (`public_queue_view`). */
 export interface PublicQueueSlot {
   slotNumber: number;
   id: string;
@@ -117,11 +117,45 @@ export interface OrderDraft {
   tosAcceptedAt: string | null;
 }
 
+export type AttachmentKind = 'receipt' | 'redline' | 'reference' | 'other';
+
+export interface OrderMessage {
+  id: string;
+  commissionId: string;
+  senderRole: 'client' | 'artist';
+  senderName: string;
+  body: string;
+  attachmentUrl?: string;
+  attachmentKind?: AttachmentKind;
+  createdAt: string;
+}
+
+export interface WipUploadItem {
+  id: string;
+  commissionId: string;
+  stage: CommissionStage;
+  title: string;
+  /** Portfolio slug or image URL for preview. */
+  slug?: string;
+  imageUrl?: string;
+  isFinal: boolean;
+  artistNote: string;
+  approvedByClient: boolean;
+  createdAt: string;
+}
+
 export interface SubmittedOrder extends OrderDraft {
   id: string;
   createdAt: string;
   totalUsd: number;
   depositUsd: number;
+  depositPaid: boolean;
+  finalPaid: boolean;
+  sketchApproved: boolean;
   stage: CommissionStage;
+  progress: number;
+  estEndDate?: string;
   authMethod: 'demo' | 'discord' | 'google';
+  wips: WipUploadItem[];
+  messages: OrderMessage[];
 }

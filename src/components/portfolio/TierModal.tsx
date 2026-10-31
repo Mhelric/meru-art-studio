@@ -62,6 +62,8 @@ export function TierModal() {
 
   const [justSubmitted, setJustSubmitted] = useState<SubmittedOrder | null>(null);
   const [step2Error, setStep2Error] = useState<string | null>(null);
+  const [submitError, setSubmitError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const tierId = draft.tier;
@@ -76,6 +78,7 @@ export function TierModal() {
     if (!drawerOpen) {
       setJustSubmitted(null);
       setStep2Error(null);
+      setSubmitError(null);
       return;
     }
     const onKey = (e: KeyboardEvent) => {
@@ -137,10 +140,20 @@ export function TierModal() {
     setDrawerStep(3);
   };
 
-  const handleFinalSubmit = (method: SubmittedOrder['authMethod']) => {
-    const created = submitOrder(method);
-    setJustSubmitted(created);
-    showToast(`Brief ${created.id} submitted to Pending Review!`);
+  const handleFinalSubmit = async (method: SubmittedOrder['authMethod']) => {
+    setSubmitting(true);
+    setSubmitError(null);
+    try {
+      const { order, error } = await submitOrder(method);
+      if (error || !order) {
+        setSubmitError(error ?? 'Could not submit request.');
+        return;
+      }
+      setJustSubmitted(order);
+      showToast(`Brief ${order.id} submitted to Pending Review!`);
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   return (
@@ -677,12 +690,29 @@ export function TierModal() {
 
                     <button
                       type="button"
+                      disabled={submitting}
                       onClick={() => handleFinalSubmit('demo')}
-                      className="mt-1 flex w-full items-center justify-center gap-1.5 rounded-full border border-dashed border-ink/35 bg-paper py-2 text-xs font-medium text-ink transition hover:border-ink hover:bg-ink hover:text-white"
+                      className="mt-1 flex w-full items-center justify-center gap-1.5 rounded-full border border-dashed border-ink/35 bg-paper py-2 text-xs font-medium text-ink transition hover:border-ink hover:bg-ink hover:text-white disabled:opacity-50"
                     >
                       <Eye className="size-3.5 text-coral" />
                       Recruiter / Visitor Demo Submit (No Login Needed)
                     </button>
+
+                    {submitError && (
+                      <div className="mt-2 flex items-center justify-between gap-2 rounded-xl bg-coral-soft px-3 py-2 text-xs font-medium text-coral">
+                        <span>{submitError}</span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            closeDrawer();
+                            setActiveTab('track');
+                          }}
+                          className="shrink-0 rounded-full bg-ink px-2.5 py-1 text-[11px] text-white"
+                        >
+                          View Active →
+                        </button>
+                      </div>
+                    )}
                   </div>
                 </div>
               )}

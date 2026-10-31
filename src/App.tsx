@@ -1,5 +1,4 @@
 import { AnimatePresence, motion } from 'framer-motion';
-import { PackageSearch } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import { useStudio } from '@/context/StudioContext';
 import { initSmoothScroll } from '@/lib/smoothScroll';
@@ -15,8 +14,8 @@ import { TierModal } from '@/components/portfolio/TierModal';
 import { CanCantCards } from '@/components/rules/CanCantCards';
 import { TosAccordion } from '@/components/rules/TosAccordion';
 import { AvailabilityCalendar } from '@/components/schedule/AvailabilityCalendar';
+import { OrderTracker } from '@/components/track/OrderTracker';
 import { SectionHeading } from '@/components/ui/SectionHeading';
-import { ComingSoon } from '@/components/ui/ComingSoon';
 import { Toast } from '@/components/ui/Toast';
 import { EASE } from '@/components/ui/Reveal';
 
@@ -80,16 +79,7 @@ export default function App() {
 
             {activeTab === 'schedule' && <AvailabilityCalendar />}
 
-            {activeTab === 'track' && (
-              <div className="pt-32">
-                <ComingSoon
-                  icon={PackageSearch}
-                  phase={4}
-                  title="Track Your Order"
-                  description="Sign in to follow your commission from sketch to high-res download, with realtime chat."
-                />
-              </div>
-            )}
+            {activeTab === 'track' && <OrderTracker />}
           </motion.div>
         </AnimatePresence>
       </main>
