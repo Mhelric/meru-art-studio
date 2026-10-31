@@ -158,10 +158,15 @@ export async function signInWithOAuthProvider(provider: 'discord' | 'google') {
   if (!supabase) {
     return { redirected: false, error: null };
   }
+  try {
+    sessionStorage.setItem('meru-oauth-return', '1');
+  } catch {
+    // ignore
+  }
   const { error } = await supabase.auth.signInWithOAuth({
     provider,
     options: {
-      redirectTo: `${window.location.origin}/#track`,
+      redirectTo: window.location.origin,
     },
   });
   return { redirected: !error, error: error?.message ?? null };

@@ -1,5 +1,5 @@
 import { motion, useMotionValueEvent, useScroll } from 'framer-motion';
-import { ArrowUpRight, Sliders } from 'lucide-react';
+import { ArrowUpRight, LogOut, Sliders } from 'lucide-react';
 import { useState } from 'react';
 import { useStudio } from '@/context/StudioContext';
 import { cn } from '@/lib/utils';
@@ -15,7 +15,7 @@ const NAV: { id: TabId; label: string; short: string }[] = [
 ];
 
 export function NavBar() {
-  const { activeTab, setActiveTab, openDrawer } = useStudio();
+  const { activeTab, setActiveTab, openDrawer, user, signOut, showToast } = useStudio();
   const { scrollY } = useScroll();
   const [scrolled, setScrolled] = useState(false);
   const [hidden, setHidden] = useState(false);
@@ -26,6 +26,13 @@ export function NavBar() {
     setScrolled(y > 12);
     setHidden(y > 260 && y > prev + 6 ? true : y < prev - 6 ? false : hidden);
   });
+
+  const userName =
+    (user?.user_metadata?.full_name as string | undefined) ||
+    (user?.user_metadata?.name as string | undefined) ||
+    user?.email?.split('@')[0] ||
+    null;
+  const userAvatar = (user?.user_metadata?.avatar_url as string | undefined) || null;
 
   return (
     <motion.header
@@ -50,13 +57,47 @@ export function NavBar() {
           <NavItems activeTab={activeTab} onSelect={setActiveTab} />
         </nav>
 
-        <button
-          onClick={() => openDrawer()}
-          className="group inline-flex shrink-0 items-center gap-1 rounded-full bg-ink px-3.5 py-2 text-xs font-medium text-white transition-colors hover:bg-coral sm:gap-1.5 sm:px-5 sm:py-2.5 sm:text-sm"
-        >
-          Commission
-          <ArrowUpRight className="size-3.5 transition-transform duration-300 group-hover:translate-x-0.5 group-hover:-translate-y-0.5 sm:size-4" />
-        </button>
+        <div className="flex shrink-0 items-center gap-2">
+          {/* Logged-in Google/Discord User Pill */}
+          {user && userName && (
+            <div className="flex items-center gap-1.5 rounded-full border border-line bg-paper py-1 pr-2 pl-1.5 text-xs">
+              {userAvatar ? (
+                <img src={userAvatar} alt="" className="size-6 rounded-full object-cover" />
+              ) : (
+                <span className="grid size-6 place-items-center rounded-full bg-teal text-[11px] font-bold text-white uppercase">
+                  {userName[0]}
+                </span>
+              )}
+              <button
+                type="button"
+                onClick={() => setActiveTab('track')}
+                className="hidden max-w-[110px] truncate font-medium text-ink hover:underline sm:inline"
+              >
+                {userName}
+              </button>
+              <button
+                type="button"
+                onClick={async () => {
+                  await signOut();
+                  showToast('Signed out.');
+                }}
+                title="Sign out"
+                aria-label="Sign out"
+                className="rounded-full p-1 text-ink-mute transition hover:bg-cream hover:text-coral"
+              >
+                <LogOut className="size-3.5" />
+              </button>
+            </div>
+          )}
+
+          <button
+            onClick={() => openDrawer()}
+            className="group inline-flex shrink-0 items-center gap-1 rounded-full bg-ink px-3.5 py-2 text-xs font-medium text-white transition-colors hover:bg-coral sm:gap-1.5 sm:px-5 sm:py-2.5 sm:text-sm"
+          >
+            Commission
+            <ArrowUpRight className="size-3.5 transition-transform duration-300 group-hover:translate-x-0.5 group-hover:-translate-y-0.5 sm:size-4" />
+          </button>
+        </div>
       </div>
 
       {/* Mobile pill nav */}

@@ -263,8 +263,27 @@ export function StudioProvider({ children }: { children: ReactNode }) {
       setUser(data.session?.user ?? null);
     });
 
-    const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
-      setUser(session?.user ?? null);
+    const { data: sub } = supabase.auth.onAuthStateChange((event, session) => {
+      const nextUser = session?.user ?? null;
+      setUser(nextUser);
+
+      // If the user just returned from Google/Discord OAuth login, auto-complete their pending submission & open Track Order
+      if (nextUser && (event === 'SIGNED_IN' || sessionStorage.getItem('meru-oauth-return'))) {
+        const cameFromOAuth = Boolean(sessionStorage.getItem('meru-oauth-return'));
+        if (cameFromOAuth) {
+          sessionStorage.removeItem('meru-oauth-return');
+          const displayName =
+            (nextUser.user_metadata?.full_name as string | undefined) ||
+            nextUser.email?.split('@')[0] ||
+            'Account';
+          window.history.replaceState(null, '', '#track');
+          setActiveTabState('track');
+          setToast({
+            id: Date.now(),
+            message: `Signed in as ${displayName}! Welcome to your commission workspace.`,
+          });
+        }
+      }
     });
 
     fetchPublicStudioData().then(({ settings, queue }) => {
@@ -459,6 +478,63 @@ export function StudioProvider({ children }: { children: ReactNode }) {
 
       if (supabase && authMethod !== 'demo') {
         if (!user) {
+          // Save a local copy of their brief right before redirecting to Google/Discord so it is ready in Track Order on return!
+          const oauthId = `MRU-${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
+          const sampleSlug = TIER_SAMPLE_SLUG[draft.tier];
+          const nowIso = new Date().toISOString();
+          const tierLabel = tiers.find((t) => t.id === draft.tier)?.label ?? draft.tier;
+          const pendingOrder: SubmittedOrder = {
+            ...draft,
+            id: oauthId,
+            createdAt: nowIso,
+            totalUsd,
+            depositUsd,
+            depositPaid: false,
+            finalPaid: false,
+            sketchApproved: false,
+            stage: 'pending_review',
+            progress: 10,
+            startDate: draft.preferredStartDate ?? '2026-11-05',
+            estEndDate: '2026-11-19',
+            authMethod,
+            wips: [
+              {
+                id: `${oauthId}-wip-1`,
+                commissionId: oauthId,
+                stage: 'sketch_approval',
+                title: `WIP #1 · ${tierLabel} Composition & Pose Sketch`,
+                slug: sampleSlug,
+                isFinal: false,
+                artistNote: 'Initial pose & expression check! Watermarked during progress.',
+                approvedByClient: false,
+                createdAt: nowIso,
+              },
+              {
+                id: `${oauthId}-wip-final`,
+                commissionId: oauthId,
+                stage: 'completed',
+                title: `Final · High-Res ${tierLabel} PNG`,
+                slug: sampleSlug,
+                isFinal: true,
+                artistNote: 'Full-resolution unwatermarked master file.',
+                approvedByClient: false,
+                createdAt: nowIso,
+              },
+            ],
+            messages: [
+              {
+                id: `${oauthId}-m1`,
+                commissionId: oauthId,
+                senderRole: 'artist',
+                senderName: 'Meru Art (Auto-Bot)',
+                body: `Thanks for signing in with ${authMethod.toUpperCase()} and submitting your ${tierLabel} brief! Your request is in Pending Review.`,
+                createdAt: nowIso,
+              },
+            ],
+          };
+          persistOrders((prev) => [pendingOrder, ...prev]);
+          setActiveOrderId(pendingOrder.id);
+
           const { error } = await signInWithOAuthProvider(authMethod);
           return { order: null, error: error ?? 'Redirecting to sign in...' };
         }
