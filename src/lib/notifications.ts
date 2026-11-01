@@ -16,7 +16,12 @@ export interface OrderNotificationEvent {
   amount?: number;
   kind?: string;
   message_body?: string;
-  client_email?: string;
+  log_id?: string;
+}
+
+export interface SystemNotificationOptions extends NotificationOptions {
+  targetHash?: string;
+  forceForeground?: boolean;
 }
 
 /** Check or request browser desktop notification permissions. */
@@ -34,8 +39,13 @@ export async function requestNotificationPermission(): Promise<NotificationPermi
   }
 }
 
-/** Show a native desktop notification if user has granted permission and tab is not focused. */
-export function showSystemNotification(title: string, options?: NotificationOptions): void {
+/**
+ * Show a native desktop OS notification.
+ * - Only displays when the browser tab is hidden / in background (visibilityState === 'hidden')
+ *   to avoid duplicate notification spam while the user is actively viewing the screen.
+ * - Routes to the parameterized `targetHash` (e.g. '#track' for clients, '#admin' for artist).
+ */
+export function showSystemNotification(title: string, options?: SystemNotificationOptions): void {
   if (
     typeof window === 'undefined' ||
     !('Notification' in window) ||
@@ -44,18 +54,26 @@ export function showSystemNotification(title: string, options?: NotificationOpti
     return;
   }
 
+  // Guard: Only fire OS notification if the tab is minimized or in the background
+  if (
+    typeof document !== 'undefined' &&
+    document.visibilityState === 'visible' &&
+    !options?.forceForeground
+  ) {
+    return;
+  }
+
   try {
+    const { targetHash = '#track', forceForeground: _, ...nativeOptions } = options || {};
     const notif = new Notification(title, {
       icon: '/favicon.ico',
       badge: '/favicon.ico',
-      ...options,
+      ...nativeOptions,
     });
 
     notif.onclick = () => {
       window.focus();
-      if (!window.location.hash.includes('track')) {
-        window.location.hash = '#track';
-      }
+      window.location.hash = targetHash;
       notif.close();
     };
   } catch (err) {
@@ -65,7 +83,7 @@ export function showSystemNotification(title: string, options?: NotificationOpti
 
 /**
  * Dispatch an order notification to the Supabase Edge Function `order-notification`.
- * This notifies external channels (Discord Webhook / Resend Email).
+ * Invokes with the caller's active JWT so the Edge Function can authenticate and verify.
  */
 export async function dispatchOrderNotification(
   event: OrderNotificationEvent,

@@ -18,6 +18,8 @@ export function useCommissionRealtime(
 ) {
   const queryClient = useQueryClient();
   const { showToast } = useStudio();
+  const showToastRef = useRef(showToast);
+  showToastRef.current = showToast;
   const channelRef = useRef<any>(null);
 
   useEffect(() => {
@@ -46,10 +48,11 @@ export function useCommissionRealtime(
           // Notify client if message was sent by the artist
           if (newMsg.sender_role === 'artist' && newMsg.sender_id !== currentUserId) {
             playNotificationSound('message');
-            showToast(`🎨 Meru Art: "${newMsg.body.slice(0, 60)}${newMsg.body.length > 60 ? '...' : ''}"`);
+            showToastRef.current(`🎨 Meru Art: "${newMsg.body.slice(0, 60)}${newMsg.body.length > 60 ? '...' : ''}"`);
             showSystemNotification('New Message from Meru Art', {
               body: newMsg.body,
               tag: `msg-${newMsg.id}`,
+              targetHash: '#track',
             });
           }
         },
@@ -73,21 +76,22 @@ export function useCommissionRealtime(
           if (oldRow && oldRow.status_stage !== newRow.status_stage) {
             playNotificationSound('stage');
             const stageLabel = (newRow.status_stage as CommissionStage).replace('_', ' ').toUpperCase();
-            showToast(`🚀 Order status updated: ${stageLabel}`);
+            showToastRef.current(`🚀 Order status updated: ${stageLabel}`);
             showSystemNotification('Commission Stage Updated', {
               body: `Your commission is now in ${stageLabel}. Check your order tracker!`,
               tag: `stage-${newRow.id}`,
+              targetHash: '#track',
             });
           }
 
           if (newRow.deposit_paid && (!oldRow || !oldRow.deposit_paid)) {
             playNotificationSound('success');
-            showToast('💰 Upfront deposit verified! Sketching is underway.');
+            showToastRef.current('💰 Upfront deposit verified! Sketching is underway.');
           }
 
           if (newRow.final_paid && (!oldRow || !oldRow.final_paid)) {
             playNotificationSound('success');
-            showToast('✨ Final payment verified! High-res master deliverable unlocked.');
+            showToastRef.current('✨ Final payment verified! High-res master deliverable unlocked.');
           }
         },
       )
@@ -104,10 +108,11 @@ export function useCommissionRealtime(
           const newWip = payload.new;
           queryClient.invalidateQueries({ queryKey: QUERY_KEYS.commissions });
           playNotificationSound('stage');
-          showToast(`🎨 Meru uploaded new artwork: "${newWip.title}"`);
+          showToastRef.current(`🎨 Meru uploaded new artwork: "${newWip.title}"`);
           showSystemNotification('New Artwork WIP Posted!', {
             body: `Meru posted "${newWip.title}". Check your tracker!`,
             tag: `wip-${newWip.id}`,
+            targetHash: '#track',
           });
         },
       )
@@ -126,7 +131,7 @@ export function useCommissionRealtime(
 
           if (payload.new.status === 'verified') {
             playNotificationSound('success');
-            showToast('Receipt verified by Meru Art Studio.');
+            showToastRef.current('Receipt verified by Meru Art Studio.');
           }
         },
       )
@@ -140,7 +145,7 @@ export function useCommissionRealtime(
         channelRef.current = null;
       }
     };
-  }, [commissionId, currentUserId, queryClient, showToast]);
+  }, [commissionId, currentUserId, queryClient]);
 }
 
 /**
@@ -150,6 +155,8 @@ export function useCommissionRealtime(
 export function useAdminRealtime(isArtistAdmin: boolean, currentUserId: string | null | undefined) {
   const queryClient = useQueryClient();
   const { showToast } = useStudio();
+  const showToastRef = useRef(showToast);
+  showToastRef.current = showToast;
   const channelRef = useRef<any>(null);
 
   useEffect(() => {
@@ -172,10 +179,11 @@ export function useAdminRealtime(isArtistAdmin: boolean, currentUserId: string |
           queryClient.invalidateQueries({ queryKey: QUERY_KEYS.adminCommissions });
           queryClient.invalidateQueries({ queryKey: QUERY_KEYS.publicStudioData });
           playNotificationSound('stage');
-          showToast(`🔔 New Commission Brief submitted by @${newOrder.client_handle || 'client'}!`);
+          showToastRef.current(`🔔 New Commission Brief submitted by @${newOrder.client_handle || 'client'}!`);
           showSystemNotification('New Commission Brief Received!', {
             body: `@${newOrder.client_handle} requested a ${newOrder.tier} commission.`,
             tag: `new-brief-${newOrder.id}`,
+            targetHash: '#admin',
           });
         },
       )
@@ -192,7 +200,12 @@ export function useAdminRealtime(isArtistAdmin: boolean, currentUserId: string |
           if (newMsg.sender_role === 'client' && newMsg.sender_id !== currentUserId) {
             queryClient.invalidateQueries({ queryKey: QUERY_KEYS.adminCommissions });
             playNotificationSound('message');
-            showToast(`💬 Client Message: "${newMsg.body.slice(0, 50)}${newMsg.body.length > 50 ? '...' : ''}"`);
+            showToastRef.current(`💬 Client Message: "${newMsg.body.slice(0, 50)}${newMsg.body.length > 50 ? '...' : ''}"`);
+            showSystemNotification('New Client Message', {
+              body: newMsg.body,
+              tag: `msg-${newMsg.id}`,
+              targetHash: '#admin',
+            });
           }
         },
       )
@@ -208,10 +221,11 @@ export function useAdminRealtime(isArtistAdmin: boolean, currentUserId: string |
           const newPayment = payload.new;
           queryClient.invalidateQueries({ queryKey: QUERY_KEYS.adminCommissions });
           playNotificationSound('stage');
-          showToast(`🧾 New ${newPayment.kind} payment receipt uploaded for verification!`);
+          showToastRef.current(`🧾 New ${newPayment.kind} payment receipt uploaded for verification!`);
           showSystemNotification('New Payment Receipt Uploaded', {
             body: `Client submitted a ${newPayment.kind} payment receipt.`,
             tag: `receipt-${newPayment.id}`,
+            targetHash: '#admin',
           });
         },
       )
@@ -225,5 +239,5 @@ export function useAdminRealtime(isArtistAdmin: boolean, currentUserId: string |
         channelRef.current = null;
       }
     };
-  }, [isArtistAdmin, currentUserId, queryClient, showToast]);
+  }, [isArtistAdmin, currentUserId, queryClient]);
 }
