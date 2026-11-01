@@ -13,6 +13,8 @@ import {
   sendCommissionMessageInDb,
   updateStudioSettingsInDb,
   submitPaymentReceiptInDb,
+  updateCommissionBriefInDb,
+  requestCommissionCancellationInDb,
   type StudioSettingsRow,
 } from '@/lib/supabase';
 
@@ -213,3 +215,43 @@ export function useUpdateStudioSettingsMutation() {
     },
   });
 }
+
+
+export function useUpdateCommissionBriefMutation() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({
+      commissionId,
+      patch,
+    }: {
+      commissionId: string;
+      patch: { characterName?: string; poseAndVibe?: string; backgroundNotes?: string };
+    }) => {
+      return updateCommissionBriefInDb(commissionId, patch);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.commissions });
+    },
+  });
+}
+
+export function useRequestCancellationMutation() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({
+      commissionId,
+      reason,
+    }: {
+      commissionId: string;
+      reason: string;
+    }) => {
+      return requestCommissionCancellationInDb(commissionId, reason);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.commissions });
+    },
+  });
+}
+

@@ -18,7 +18,7 @@ import {
 import { useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react';
 import { PORTFOLIO } from '@/data/artist';
 import { calculateOrderPricing, useStudio, type DrawerStep } from '@/context/StudioContext';
-import { ACCENT_CLASSES, TIER_ACCENT, cn, formatShortDate } from '@/lib/utils';
+import { ACCENT_CLASSES, TIER_ACCENT, cn, formatShortDate, getLocalFutureDate } from '@/lib/utils';
 import { lockScroll } from '@/lib/smoothScroll';
 import { EASE } from '@/components/ui/Reveal';
 import { BrandIcon } from '@/components/ui/BrandIcon';
@@ -493,7 +493,7 @@ export function TierModal() {
                       <div className="relative">
                         <input
                           type="date"
-                          value={draft.preferredStartDate ?? '2026-11-05'}
+                          value={draft.preferredStartDate ?? getLocalFutureDate(3)}
                           onChange={(e) => updateDraft({ preferredStartDate: e.target.value })}
                           className="w-full rounded-xl border border-line bg-canvas px-3 py-2 text-xs text-ink focus:border-ink focus:outline-none"
                         />
@@ -672,38 +672,35 @@ export function TierModal() {
                     <p className="flex items-center gap-1.5 text-xs font-semibold text-ink">
                       <ShieldCheck className="size-4 text-teal" /> Sign in & Submit Request
                     </p>
-                    <p className="text-[11px] text-ink-soft">
-                      No payment is charged now. Your brief enters <strong>Pending Review</strong> first until Meru accepts your slot.
+                    <p className="text-xs text-ink-soft">
+                      No payment is charged now. Your brief enters <strong>{studioSettings.status === 'waitlist' ? 'Studio Waitlist' : 'Pending Review'}</strong> first until Meru accepts your slot.
                     </p>
 
-                    <div className="grid grid-cols-2 gap-2 pt-1">
+                    <div className="space-y-2 pt-2">
                       <button
                         type="button"
-                        onClick={() => handleFinalSubmit('discord')}
-                        className="flex items-center justify-center gap-2 rounded-full bg-[#5865F2] py-2.5 text-xs font-medium text-white transition hover:opacity-95"
-                      >
-                        <BrandIcon id="discord" className="size-3.5" />
-                        Continue with Discord
-                      </button>
-                      <button
-                        type="button"
+                        disabled={submitting}
                         onClick={() => handleFinalSubmit('google')}
-                        className="flex items-center justify-center gap-2 rounded-full border border-line bg-paper py-2.5 text-xs font-medium text-ink transition hover:bg-canvas"
+                        className="flex w-full items-center justify-center gap-2.5 rounded-full bg-ink py-3 text-xs font-semibold text-white shadow-xs transition hover:bg-coral disabled:opacity-50"
                       >
-                        <span className="font-bold text-coral">G</span>
-                        Continue with Google
+                        <BrandIcon id="google" className="size-4 fill-white" />
+                        <span>
+                          {studioSettings.status === 'waitlist'
+                            ? 'Join Studio Waitlist with Google'
+                            : 'Submit Commission Brief with Google'}
+                        </span>
+                      </button>
+
+                      <button
+                        type="button"
+                        disabled={submitting}
+                        onClick={() => handleFinalSubmit('demo')}
+                        className="flex w-full items-center justify-center gap-1.5 rounded-full border border-dashed border-ink/35 bg-paper py-2 text-xs font-medium text-ink transition hover:border-ink hover:bg-cream disabled:opacity-50"
+                      >
+                        <Eye className="size-3.5 text-coral" />
+                        <span>Recruiter / Showcase Demo Submit (No Login Needed)</span>
                       </button>
                     </div>
-
-                    <button
-                      type="button"
-                      disabled={submitting}
-                      onClick={() => handleFinalSubmit('demo')}
-                      className="mt-1 flex w-full items-center justify-center gap-1.5 rounded-full border border-dashed border-ink/35 bg-paper py-2 text-xs font-medium text-ink transition hover:border-ink hover:bg-ink hover:text-white disabled:opacity-50"
-                    >
-                      <Eye className="size-3.5 text-coral" />
-                      Recruiter / Visitor Demo Submit (No Login Needed)
-                    </button>
 
                     {submitError && (
                       <div className="mt-2 flex items-center justify-between gap-2 rounded-xl bg-coral-soft px-3 py-2 text-xs font-medium text-coral">

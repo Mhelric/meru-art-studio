@@ -47,6 +47,7 @@ import {
   useSendMessageMutation,
   useUpdateStudioSettingsMutation,
 } from '@/lib/queries';
+import { getLocalFutureDate } from '@/lib/utils';
 
 const TAB_IDS: TabId[] = ['portfolio', 'rules', 'schedule', 'track', 'admin'];
 const DRAFT_KEY = 'meru-order-draft-v1';
@@ -339,7 +340,7 @@ export function StudioProvider({ children }: { children: ReactNode }) {
       if (orders.length > 0) {
         return isDemoMode ? [...orders, DEMO_SHOWCASE_ORDER] : orders;
       }
-      return isDemoMode ? [DEMO_SHOWCASE_ORDER, ...localOrders] : localOrders;
+      return isDemoMode ? [DEMO_SHOWCASE_ORDER, ...localOrders] : [];
     }
     // Logged out
     return isDemoMode ? [DEMO_SHOWCASE_ORDER, ...localOrders] : [];
@@ -613,8 +614,8 @@ export function StudioProvider({ children }: { children: ReactNode }) {
         sketchApproved: false,
         stage: 'pending_review',
         progress: 10,
-        startDate: draft.preferredStartDate ?? '2026-11-05',
-        estEndDate: '2026-11-19',
+        startDate: draft.preferredStartDate ?? getLocalFutureDate(3),
+        estEndDate: getLocalFutureDate(17),
         authMethod: 'demo',
         wips: [
           {

@@ -51,6 +51,12 @@ export const STAGE_STEPS: {
   },
 ];
 
+const getDynamicDateStr = (daysOffset: number) => {
+  const d = new Date();
+  d.setDate(d.getDate() + daysOffset);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+};
+
 /**
  * Rich showcase order pre-loaded into the Track Order tab so portfolio visitors,
  * recruiters, and clients can immediately experience the Pizza-Tracker, WIP
@@ -59,14 +65,14 @@ export const STAGE_STEPS: {
 export const DEMO_SHOWCASE_ORDER: SubmittedOrder = {
   id: 'MRU-KITSUNE',
   orderCode: 'MRU-KITSUNE',
-  createdAt: '2026-10-29T10:15:00.000Z',
+  createdAt: new Date(Date.now() - 3 * 86400000).toISOString(),
   tier: 'fullbody',
   characterCount: 1,
   addons: { nsfw: false, softFurry: true, commercial: false },
   currency: 'USD',
   paymentSplit: '50_50',
-  preferredStartDate: '2026-11-02',
-  estEndDate: '2026-11-16',
+  preferredStartDate: getDynamicDateStr(-2),
+  estEndDate: getDynamicDateStr(12),
   characterName: 'Kitsune Gem (Nine-Tailed Fox OC)',
   poseAndVibe:
     'Playful mid-step pose with arms outstretched, candy-bow top, polka-dot skirt, and striped pastel boots. Warm cheerful expression!',

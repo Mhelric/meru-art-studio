@@ -1,18 +1,21 @@
 import type { BlockedRange, PublicQueueSlot } from '@/types';
 
-/**
- * Seed data for the Phase 2 Availability & Queue Calendar.
- * Dates are anchored around November–December 2026 so the current month and
- * next month immediately showcase active anonymised slots, blocked exam dates,
- * and open green booking windows. In Phase 3 this will be hydrated from
- * `studio_settings` and `public_queue_view`.
- */
+const toIso = (daysOffset: number) => {
+  const d = new Date();
+  d.setDate(d.getDate() + daysOffset);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+};
 
+/**
+ * Seed data for the Availability & Queue Calendar when offline or before Supabase hydration.
+ * Dynamically relative to the current local date so queue slots and booking windows
+ * always remain relevant and functional.
+ */
 export const STUDIO_AVAILABILITY = {
   status: 'open' as 'open' | 'waitlist' | 'closed',
   maxSlots: 5,
   usdToPhpRate: 58,
-  nextOpenWindow: '2026-11-05',
+  nextOpenWindow: toIso(3),
 };
 
 export const INITIAL_PUBLIC_QUEUE: PublicQueueSlot[] = [
@@ -24,8 +27,8 @@ export const INITIAL_PUBLIC_QUEUE: PublicQueueSlot[] = [
     stage: 'lineart_coloring',
     stageLabel: 'Lineart & Coloring',
     progress: 78,
-    startDate: '2026-10-24',
-    estEndDate: '2026-11-06',
+    startDate: toIso(-8),
+    estEndDate: toIso(4),
     accent: 'lilac',
   },
   {
@@ -36,8 +39,8 @@ export const INITIAL_PUBLIC_QUEUE: PublicQueueSlot[] = [
     stage: 'sketch_approval',
     stageLabel: 'Sketch Approval Gate',
     progress: 48,
-    startDate: '2026-11-02',
-    estEndDate: '2026-11-13',
+    startDate: toIso(-3),
+    estEndDate: toIso(8),
     accent: 'mustard',
   },
   {
@@ -48,8 +51,8 @@ export const INITIAL_PUBLIC_QUEUE: PublicQueueSlot[] = [
     stage: 'sketching',
     stageLabel: 'Sketching (3 Emotes)',
     progress: 25,
-    startDate: '2026-11-10',
-    estEndDate: '2026-11-18',
+    startDate: toIso(2),
+    estEndDate: toIso(12),
     accent: 'peach',
   },
 ];
@@ -57,14 +60,14 @@ export const INITIAL_PUBLIC_QUEUE: PublicQueueSlot[] = [
 export const BLOCKED_RANGES: BlockedRange[] = [
   {
     id: 'block-1',
-    startDate: '2026-11-20',
-    endDate: '2026-11-23',
+    startDate: toIso(18),
+    endDate: toIso(21),
     reason: 'CS Midterm Exams · Studio Paused',
   },
   {
     id: 'block-2',
-    startDate: '2026-12-12',
-    endDate: '2026-12-14',
+    startDate: toIso(35),
+    endDate: toIso(38),
     reason: 'Artist Rest & Finals Prep',
   },
 ];

@@ -9,6 +9,7 @@ import { Footer } from '@/components/layout/Footer';
 import { IntroSplash } from '@/components/layout/IntroSplash';
 import { Gallery } from '@/components/portfolio/Gallery';
 import { PricingCards } from '@/components/portfolio/PricingCards';
+import { HowItWorks } from '@/components/home/HowItWorks';
 import { Lightbox } from '@/components/portfolio/Lightbox';
 import { TierModal } from '@/components/portfolio/TierModal';
 import { CanCantCards } from '@/components/rules/CanCantCards';
@@ -53,6 +54,7 @@ export default function App() {
               <>
                 <Hero />
                 <Gallery />
+                <HowItWorks />
                 <PricingCards />
               </>
             )}

@@ -11,7 +11,7 @@ import {
 import { useMemo, useState } from 'react';
 import { STUDIO_AVAILABILITY } from '@/data/schedule';
 import { useStudio } from '@/context/StudioContext';
-import { ACCENT_CLASSES, cn, formatShortDate, getTier } from '@/lib/utils';
+import { ACCENT_CLASSES, cn, formatShortDate, getTier, getLocalTodayDate, getLocalFutureDate } from '@/lib/utils';
 import { SectionHeading } from '@/components/ui/SectionHeading';
 import { EASE, Reveal } from '@/components/ui/Reveal';
 import type { BlockedRange, PublicQueueSlot } from '@/types';
@@ -27,17 +27,15 @@ function toIsoDate(year: number, monthIndex: number, day: number) {
 export function AvailabilityCalendar() {
   const { queueSlots, maxSlots, openDrawer, draft, studioSettings } = useStudio();
 
-  // Default to November 2026 so active slots, blocked exam dates, and open green windows are visible right away.
+  // Dynamic calendar cursor defaulting to current local month and year
   const [cursor, setCursor] = useState<{ year: number; month: number }>(() => {
     const now = new Date();
-    // If opened in late Oct 2026, show Nov 2026 where the bulk of the queue & open windows live
-    if (now.getFullYear() === 2026 && now.getMonth() === 9 && now.getDate() >= 25) {
-      return { year: 2026, month: 10 };
-    }
     return { year: now.getFullYear(), month: now.getMonth() };
   });
 
-  const [selectedDay, setSelectedDay] = useState<string | null>(draft.preferredStartDate ?? STUDIO_AVAILABILITY.nextOpenWindow);
+  const [selectedDay, setSelectedDay] = useState<string | null>(
+    draft.preferredStartDate ?? getLocalFutureDate(3),
+  );
 
   const openSlotsCount = Math.max(0, maxSlots - queueSlots.length);
 
@@ -59,7 +57,7 @@ export function AvailabilityCalendar() {
 
     for (let i = 0; i < firstDow; i++) cells.push(null);
 
-    const todayIso = new Date().toISOString().slice(0, 10);
+    const todayIso = getLocalTodayDate();
 
     for (let day = 1; day <= totalDays; day++) {
       const iso = toIsoDate(cursor.year, cursor.month, day);

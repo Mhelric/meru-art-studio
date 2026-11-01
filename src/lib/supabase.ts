@@ -561,3 +561,55 @@ export async function updateStudioSettingsInDb(
 
   return { success: !error, error: error?.message ?? null };
 }
+
+
+/** Update client brief details while in pending_review. Enforces row-match verification. */
+export async function updateCommissionBriefInDb(
+  commissionId: string,
+  patch: {
+    characterName?: string;
+    poseAndVibe?: string;
+    backgroundNotes?: string;
+  },
+): Promise<{ success: boolean; error: string | null }> {
+  if (!supabase) return { success: false, error: 'Supabase not connected' };
+
+  const updates: Record<string, unknown> = {};
+  if (patch.characterName !== undefined) updates.character_name = patch.characterName.trim();
+  if (patch.poseAndVibe !== undefined) updates.pose_and_vibe = patch.poseAndVibe.trim();
+  if (patch.backgroundNotes !== undefined) updates.background_notes = patch.backgroundNotes.trim();
+
+  // Enforce row-match verification: .select('id').single() errors out if 0 rows matched (e.g. stage advanced or RLS rejected)
+  const { data, error } = await supabase
+    .from('commissions')
+    .update(updates)
+    .eq('id', commissionId)
+    .eq('status_stage', 'pending_review')
+    .select('id')
+    .single();
+
+  if (error || !data) {
+    return {
+      success: false,
+      error: error?.message ?? 'Brief can only be edited while status is pending_review.',
+    };
+  }
+
+  return { success: true, error: null };
+}
+
+/** Request structured cancellation and refund under studio TOS policies. */
+export async function requestCommissionCancellationInDb(
+  commissionId: string,
+  reason: string,
+): Promise<{ success: boolean; error: string | null }> {
+  if (!supabase) return { success: false, error: 'Supabase not connected' };
+
+  const msgRes = await sendCommissionMessageInDb(
+    commissionId,
+    `Cancellation & Refund Request: ${reason.trim() || 'Client submitted formal cancellation request based on TOS tier.'}`,
+    { attachmentKind: 'other' },
+  );
+
+  return { success: Boolean(msgRes.message), error: msgRes.error };
+}

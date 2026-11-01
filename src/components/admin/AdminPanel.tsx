@@ -20,7 +20,7 @@ import {
 import { useMemo, useRef, useState, type ChangeEvent, type FormEvent } from 'react';
 import { STAGE_STEPS } from '@/data/orders';
 import { useStudio } from '@/context/StudioContext';
-import { ACCENT_CLASSES, TIER_ACCENT, cn, formatMoney, formatShortDate, formatUsd, getTier } from '@/lib/utils';
+import { ACCENT_CLASSES, TIER_ACCENT, cn, formatMoney, formatShortDate, formatUsd, getTier, getLocalTodayDate, getLocalFutureDate } from '@/lib/utils';
 import { SectionHeading } from '@/components/ui/SectionHeading';
 import { Reveal } from '@/components/ui/Reveal';
 import { uploadWipArtwork } from '@/lib/storage';
@@ -71,8 +71,11 @@ export function AdminPanel() {
   // Phase 6D: Realtime WebSocket Subscription for Artist Admin control surface
   useAdminRealtime(isArtistAdmin, user?.id);
 
-  // Mini-calendar state for 1-click date blocking
-  const [cursor, setCursor] = useState<{ year: number; month: number }>({ year: 2026, month: 10 }); // Nov 2026
+  // Mini-calendar state for 1-click date blocking (dynamically anchored to current month)
+  const [cursor, setCursor] = useState<{ year: number; month: number }>(() => {
+    const now = new Date();
+    return { year: now.getFullYear(), month: now.getMonth() };
+  });
   const [blockReason, setBlockReason] = useState('Studio Busy / Exam Day');
 
   // WIP uploader state
@@ -709,12 +712,12 @@ export function AdminPanel() {
                   </label>
                   <input
                     type="date"
-                    value={selectedOrder.startDate ?? selectedOrder.preferredStartDate ?? '2026-11-02'}
+                    value={selectedOrder.startDate ?? selectedOrder.preferredStartDate ?? getLocalTodayDate()}
                     onChange={(e) =>
                       updateOrderSchedule(
                         selectedOrder.id,
                         e.target.value,
-                        selectedOrder.estEndDate ?? '2026-11-16',
+                        selectedOrder.estEndDate ?? getLocalFutureDate(14),
                       )
                     }
                     className="w-full rounded-xl border border-line bg-paper px-2.5 py-1.5 text-xs text-ink"
@@ -726,11 +729,11 @@ export function AdminPanel() {
                   </label>
                   <input
                     type="date"
-                    value={selectedOrder.estEndDate ?? '2026-11-16'}
+                    value={selectedOrder.estEndDate ?? getLocalFutureDate(14)}
                     onChange={(e) =>
                       updateOrderSchedule(
                         selectedOrder.id,
-                        selectedOrder.startDate ?? selectedOrder.preferredStartDate ?? '2026-11-02',
+                        selectedOrder.startDate ?? selectedOrder.preferredStartDate ?? getLocalTodayDate(),
                         e.target.value,
                       )
                     }

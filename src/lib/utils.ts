@@ -22,6 +22,30 @@ export const formatShortDate = (iso: string) => {
   return new Date(y, m - 1, d).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 };
 
+/**
+ * Returns today's date in local calendar time (YYYY-MM-DD), avoiding UTC offset bugs for Manila (UTC+8)
+ * where 00:00-08:00 UTC would otherwise return yesterday's date.
+ */
+export function getLocalTodayDate(): string {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, '0');
+  const day = String(now.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+/**
+ * Returns a future date formatted as YYYY-MM-DD in local calendar time.
+ */
+export function getLocalFutureDate(daysAhead: number): string {
+  const d = new Date();
+  d.setDate(d.getDate() + daysAhead);
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
 /** Each tier gets a colour from the logo palette. */
 export const TIER_ACCENT: Record<TierId, Accent> = {
   headshot: 'coral',
