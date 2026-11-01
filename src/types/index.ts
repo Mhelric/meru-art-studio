@@ -33,7 +33,9 @@ export type CommissionStage =
   | 'sketching'
   | 'sketch_approval'
   | 'lineart_coloring'
-  | 'completed';
+  | 'completed'
+  | 'declined'
+  | 'cancelled';
 
 export interface Tier {
   id: TierId;
@@ -175,4 +177,29 @@ export interface SubmittedOrder extends OrderDraft {
   authMethod: 'demo' | 'discord' | 'google';
   wips: WipUploadItem[];
   messages: OrderMessage[];
+}
+
+export interface PaymentRecord {
+  id: string;
+  commissionId: string;
+  kind: 'deposit' | 'final' | 'full';
+  amount: number;
+  currency: Currency;
+  receiptPath?: string;
+  status: 'submitted' | 'verified' | 'rejected';
+  verifiedBy?: string;
+  verifiedAt?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CommissionEvent {
+  id: string;
+  commissionId: string;
+  fromStage?: CommissionStage | null;
+  toStage: CommissionStage;
+  actorId?: string;
+  actorRole: 'artist' | 'client' | 'system';
+  note: string;
+  createdAt: string;
 }

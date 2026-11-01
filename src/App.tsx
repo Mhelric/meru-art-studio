@@ -23,7 +23,7 @@ import { EASE } from '@/components/ui/Reveal';
 const SPLASH_KEY = 'meru-splash-seen';
 
 export default function App() {
-  const { activeTab } = useStudio();
+  const { activeTab, isArtistAdmin } = useStudio();
   const [showSplash, setShowSplash] = useState(() => !sessionStorage.getItem(SPLASH_KEY));
 
   useEffect(() => initSmoothScroll(), []);
@@ -82,7 +82,7 @@ export default function App() {
 
             {activeTab === 'track' && <OrderTracker />}
 
-            {activeTab === 'admin' && <AdminPanel />}
+            {activeTab === 'admin' && (isArtistAdmin ? <AdminPanel /> : <OrderTracker />)}
           </motion.div>
         </AnimatePresence>
       </main>

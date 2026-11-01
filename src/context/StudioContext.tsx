@@ -244,7 +244,13 @@ export function StudioProvider({ children }: { children: ReactNode }) {
   const [submittedOrders, setSubmittedOrders] = useState<SubmittedOrder[]>(loadSubmittedOrders);
   const [activeOrderId, setActiveOrderId] = useState<string>(() => loadSubmittedOrders()[0]?.id ?? DEMO_SHOWCASE_ORDER.id);
   const [user, setUser] = useState<User | null>(null);
-  const [devAdminPreview, setDevAdminPreview] = useState<boolean>(true);
+  const [devAdminPreview, setDevAdminPreview] = useState<boolean>(() => {
+    if (import.meta.env.DEV && typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      return params.get('admin') === '1' || params.get('demo') === '1';
+    }
+    return false;
+  });
   const [lightbox, setLightbox] = useState<LightboxState | null>(null);
   const [toast, setToast] = useState<Toast | null>(null);
   const toastTimer = useRef<number | undefined>(undefined);

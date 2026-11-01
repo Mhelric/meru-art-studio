@@ -15,10 +15,12 @@ const NAV: { id: TabId; label: string; short: string }[] = [
 ];
 
 export function NavBar() {
-  const { activeTab, setActiveTab, openDrawer, user, signOut, showToast } = useStudio();
+  const { activeTab, setActiveTab, openDrawer, user, signOut, showToast, isArtistAdmin } = useStudio();
   const { scrollY } = useScroll();
   const [scrolled, setScrolled] = useState(false);
   const [hidden, setHidden] = useState(false);
+
+  const navItems = NAV.filter((item) => item.id !== 'admin' || isArtistAdmin);
 
   // Framer-style header: hide on scroll down, reveal on scroll up.
   useMotionValueEvent(scrollY, 'change', (y) => {
@@ -54,7 +56,7 @@ export function NavBar() {
 
         {/* Desktop pill nav */}
         <nav aria-label="Primary" className="hidden rounded-full border border-line bg-paper/90 p-1 backdrop-blur md:flex">
-          <NavItems activeTab={activeTab} onSelect={setActiveTab} />
+          <NavItems items={navItems} activeTab={activeTab} onSelect={setActiveTab} />
         </nav>
 
         <div className="flex shrink-0 items-center gap-2">
@@ -105,16 +107,26 @@ export function NavBar() {
         aria-label="Primary mobile"
         className="mx-3.5 mb-2 flex justify-center rounded-full border border-line bg-paper/95 p-1 backdrop-blur md:hidden"
       >
-        <NavItems activeTab={activeTab} onSelect={setActiveTab} compact />
+        <NavItems items={navItems} activeTab={activeTab} onSelect={setActiveTab} compact />
       </nav>
     </motion.header>
   );
 }
 
-function NavItems({ activeTab, onSelect, compact = false }: { activeTab: TabId; onSelect: (t: TabId) => void; compact?: boolean }) {
+function NavItems({
+  items,
+  activeTab,
+  onSelect,
+  compact = false,
+}: {
+  items: typeof NAV;
+  activeTab: TabId;
+  onSelect: (t: TabId) => void;
+  compact?: boolean;
+}) {
   return (
     <>
-      {NAV.map(({ id, label, short }) => {
+      {items.map(({ id, label, short }) => {
         const active = activeTab === id;
         const isAdmin = id === 'admin';
         return (
