@@ -47,6 +47,7 @@ export function ArtImage({ slug, alt, size = 'sm', className, imgClassName, keep
         width={meta?.w}
         height={meta?.h}
         loading={eager ? 'eager' : 'lazy'}
+        fetchPriority={eager ? 'high' : 'auto'}
         decoding="async"
         draggable={false}
         onLoad={() => setLoaded(true)}

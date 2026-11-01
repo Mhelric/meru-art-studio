@@ -641,12 +641,12 @@ export function OrderTracker() {
               )}
               {order.addons.softFurry && (
                 <span className="rounded-full bg-mustard-soft px-2 py-0.5 text-xs font-medium text-[#b9800f]">
-                  Soft Furry (+25%)
+                  Soft Furry (+50%)
                 </span>
               )}
               {order.addons.commercial && (
                 <span className="rounded-full bg-teal-soft px-2 py-0.5 text-xs font-medium text-teal">
-                  Commercial (+100%)
+                  Commercial (+200%)
                 </span>
               )}
               {!order.addons.nsfw && !order.addons.softFurry && !order.addons.commercial && (
@@ -925,7 +925,14 @@ export function OrderTracker() {
             </div>
 
             {/* Chat Message List */}
-            <div className="no-scrollbar flex-1 space-y-3 overflow-y-auto py-2 pr-1">
+            <div
+              role="log"
+              aria-live="polite"
+              aria-relevant="additions text"
+              aria-atomic="false"
+              aria-label="Order messages live transcript"
+              className="no-scrollbar flex-1 space-y-3 overflow-y-auto py-2 pr-1"
+            >
               {order.messages.map((m) => {
                 const isArtist = m.senderRole === 'artist';
                 return (
@@ -1304,7 +1311,7 @@ export function OrderTracker() {
   );
 }
 
-function getRefundTierInfo(
+export function getRefundTierInfo(
   stage: CommissionStage,
   totalUsd: number,
   depositUsd: number,

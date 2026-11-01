@@ -22,11 +22,17 @@ export function NavBar() {
 
   const navItems = NAV.filter((item) => item.id !== 'admin' || isArtistAdmin);
 
-  // Framer-style header: hide on scroll down, reveal on scroll up.
+  // Framer-style header: hide on scroll down, reveal on scroll up (throttled threshold)
   useMotionValueEvent(scrollY, 'change', (y) => {
     const prev = scrollY.getPrevious() ?? 0;
-    setScrolled(y > 12);
-    setHidden(y > 260 && y > prev + 6 ? true : y < prev - 6 ? false : hidden);
+    const isScrolled = y > 12;
+    setScrolled((s) => (s !== isScrolled ? isScrolled : s));
+
+    if (y > 260 && y > prev + 10) {
+      setHidden(true);
+    } else if (y < prev - 10) {
+      setHidden(false);
+    }
   });
 
   const userName =

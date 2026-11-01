@@ -40,19 +40,12 @@ export function PricingCards() {
 
           return (
             <Reveal key={tier.id} delay={i * 0.05} className="h-full">
-              <div
-                role="button"
-                tabIndex={0}
+              <button
+                type="button"
                 onClick={() => commissionTier(tier.id)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' || e.key === ' ') {
-                    e.preventDefault();
-                    commissionTier(tier.id);
-                  }
-                }}
                 aria-label={`Commission ${tier.label} starting at ${formatUsd(tier.basePriceUsd)}`}
                 className={cn(
-                  'group card flex h-full cursor-pointer flex-col overflow-hidden p-3 text-left transition-all duration-300 select-none hover:-translate-y-1 hover:border-ink/35 active:scale-[0.99]',
+                  'group card flex h-full w-full cursor-pointer flex-col overflow-hidden p-3 text-left transition-all duration-300 select-none hover:-translate-y-1 hover:border-ink/35 active:scale-[0.99] focus:outline-none focus-visible:ring-2 focus-visible:ring-ink',
                   selected && `ring-2 ${accent.ring} border-ink`,
                 )}
               >
@@ -116,7 +109,7 @@ export function PricingCards() {
                     <ArrowUpRight className="size-4 shrink-0 transition-transform group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
                   </span>
                 </div>
-              </div>
+              </button>
             </Reveal>
           );
         })}

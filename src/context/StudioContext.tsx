@@ -441,14 +441,18 @@ export function StudioProvider({ children }: { children: ReactNode }) {
     }
   }, [studioSettings]);
 
-  // Persist draft
+  // Persist draft (debounced by 350ms to prevent synchronous storage I/O on every keystroke)
   useEffect(() => {
-    try {
-      const { references: _refs, ...serializable } = draft;
-      localStorage.setItem(DRAFT_KEY, JSON.stringify(serializable));
-    } catch {
-      // ignore
-    }
+    const timer = setTimeout(() => {
+      try {
+        const { references: _refs, ...serializable } = draft;
+        localStorage.setItem(DRAFT_KEY, JSON.stringify(serializable));
+      } catch {
+        // ignore
+      }
+    }, 350);
+
+    return () => clearTimeout(timer);
   }, [draft]);
 
   const tiers = useMemo<Tier[]>(

@@ -1,4 +1,4 @@
-import { motion, type HTMLMotionProps } from 'framer-motion';
+import { motion, useReducedMotion, type HTMLMotionProps } from 'framer-motion';
 
 /** Shared easing — slow, confident "expo out" used across the site. */
 export const EASE = [0.22, 1, 0.36, 1] as const;
@@ -10,8 +10,18 @@ interface RevealProps extends HTMLMotionProps<'div'> {
   immediate?: boolean;
 }
 
-/** Fade + rise + un-blur. The core motion primitive of the site. */
+/** Fade + rise + un-blur. The core motion primitive of the site, respecting user reduced motion preferences. */
 export function Reveal({ delay = 0, y = 24, immediate = false, children, ...rest }: RevealProps) {
+  const shouldReduceMotion = useReducedMotion();
+
+  if (shouldReduceMotion) {
+    return (
+      <div {...(rest as any)}>
+        {children}
+      </div>
+    );
+  }
+
   const target = { opacity: 1, y: 0, filter: 'blur(0px)' };
   return (
     <motion.div
@@ -25,8 +35,14 @@ export function Reveal({ delay = 0, y = 24, immediate = false, children, ...rest
   );
 }
 
-/** Splits a string into words that rise in one after another. */
+/** Splits a string into words that rise in one after another, respecting reduced motion. */
 export function WordReveal({ text, className, delay = 0, stagger = 0.06 }: { text: string; className?: string; delay?: number; stagger?: number }) {
+  const shouldReduceMotion = useReducedMotion();
+
+  if (shouldReduceMotion) {
+    return <span className={className}>{text}</span>;
+  }
+
   return (
     <span className={className} aria-label={text}>
       {text.split(' ').map((word, i) => (

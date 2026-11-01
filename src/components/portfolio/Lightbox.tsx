@@ -1,6 +1,6 @@
 import { AnimatePresence, motion } from 'framer-motion';
 import { ChevronLeft, ChevronRight, Sparkles, X } from 'lucide-react';
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import { PORTFOLIO } from '@/data/artist';
 import { useStudio } from '@/context/StudioContext';
 import { ACCENT_CLASSES, TIER_ACCENT, formatUsd, getTier } from '@/lib/utils';
@@ -18,18 +18,45 @@ export function Lightbox() {
   const index = lightbox?.index ?? null;
   const item = index !== null ? items[index] : null;
 
+  const previouslyFocusedElementRef = useRef<HTMLElement | null>(null);
+  const containerRef = useRef<HTMLDivElement | null>(null);
+
   useEffect(() => {
     if (index === null || items.length === 0) return;
+    previouslyFocusedElementRef.current = document.activeElement as HTMLElement;
+
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') closeLightbox();
       if (e.key === 'ArrowRight') setLightboxIndex((index + 1) % items.length);
       if (e.key === 'ArrowLeft') setLightboxIndex((index - 1 + items.length) % items.length);
+
+      if (e.key === 'Tab' && containerRef.current) {
+        const focusable = containerRef.current.querySelectorAll<HTMLElement>(
+          'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])',
+        );
+        if (focusable.length === 0) return;
+        const first = focusable[0];
+        const last = focusable[focusable.length - 1];
+
+        if (e.shiftKey) {
+          if (document.activeElement === first) {
+            last.focus();
+            e.preventDefault();
+          }
+        } else {
+          if (document.activeElement === last) {
+            first.focus();
+            e.preventDefault();
+          }
+        }
+      }
     };
     lockScroll(true);
     window.addEventListener('keydown', onKey);
     return () => {
       lockScroll(false);
       window.removeEventListener('keydown', onKey);
+      previouslyFocusedElementRef.current?.focus();
     };
   }, [index, items.length, closeLightbox, setLightboxIndex]);
 
@@ -48,6 +75,7 @@ export function Lightbox() {
       {item && tier && accent && index !== null && (
         <motion.div
           key="lightbox"
+          ref={containerRef}
           role="dialog"
           aria-modal="true"
           aria-label={item.title}

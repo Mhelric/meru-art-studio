@@ -81,6 +81,9 @@ export function TierModal() {
 
   const pricing = useMemo(() => calculateOrderPricing(draft, studioSettings), [draft, studioSettings]);
 
+  const previouslyFocusedElementRef = useRef<HTMLElement | null>(null);
+  const drawerRef = useRef<HTMLDivElement | null>(null);
+
   useEffect(() => {
     if (!drawerOpen) {
       setJustSubmitted(null);
@@ -88,14 +91,38 @@ export function TierModal() {
       setSubmitError(null);
       return;
     }
+    previouslyFocusedElementRef.current = document.activeElement as HTMLElement;
+
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') closeDrawer();
+
+      if (e.key === 'Tab' && drawerRef.current) {
+        const focusable = drawerRef.current.querySelectorAll<HTMLElement>(
+          'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])',
+        );
+        if (focusable.length === 0) return;
+        const first = focusable[0];
+        const last = focusable[focusable.length - 1];
+
+        if (e.shiftKey) {
+          if (document.activeElement === first) {
+            last.focus();
+            e.preventDefault();
+          }
+        } else {
+          if (document.activeElement === last) {
+            first.focus();
+            e.preventDefault();
+          }
+        }
+      }
     };
     lockScroll(true);
     window.addEventListener('keydown', onKey);
     return () => {
       lockScroll(false);
       window.removeEventListener('keydown', onKey);
+      previouslyFocusedElementRef.current?.focus();
     };
   }, [drawerOpen, closeDrawer]);
 
@@ -179,6 +206,8 @@ export function TierModal() {
           className="fixed inset-0 z-[85] flex items-end justify-end bg-ink/55 backdrop-blur-sm sm:items-stretch"
         >
           <motion.div
+            ref={drawerRef}
+            tabIndex={-1}
             initial={{ y: '100%' }}
             animate={{ y: 0 }}
             exit={{ y: '100%' }}

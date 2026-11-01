@@ -4,7 +4,7 @@ import { formatMoney, formatShortDate, getTier } from '@/lib/utils';
 /**
  * Escapes HTML characters to prevent DOM-based XSS when injecting dynamic strings into print templates.
  */
-function escapeHtml(str: unknown): string {
+export function escapeHtml(str: unknown): string {
   if (str === null || str === undefined) return '';
   return String(str)
     .replace(/&/g, '&amp;')
@@ -32,8 +32,8 @@ export function printOrderInvoice(order: SubmittedOrder): void {
   const remainingUsd = Math.max(0, order.totalUsd - order.depositUsd);
   const activeAddons: string[] = [];
   if (order.addons.nsfw) activeAddons.push('NSFW Content (+50%)');
-  if (order.addons.softFurry) activeAddons.push('Soft Furry / Kemonomimi (+25%)');
-  if (order.addons.commercial) activeAddons.push('Commercial Rights (+100%)');
+  if (order.addons.softFurry) activeAddons.push('Soft Furry / Kemonomimi (+50%)');
+  if (order.addons.commercial) activeAddons.push('Commercial Rights (+200%)');
 
   const safeClientContact = escapeHtml(order.clientContact || 'Private Client');
   const safeCharacterName = escapeHtml(order.characterName || 'Original Character');

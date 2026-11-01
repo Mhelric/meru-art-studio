@@ -82,6 +82,7 @@ export function Hero() {
                     item={item}
                     onSelect={openPiece}
                     compact
+                    eager={i < 2}
                     className="w-40 shrink-0 sm:w-52"
                   />
                 ))}
@@ -169,7 +170,7 @@ function MarqueeColumn({
       style={{ '--marquee-duration': duration } as React.CSSProperties}
     >
       {doubled.map((item, i) => (
-        <ShowcaseCard key={`${item.id}-${i}`} item={item} onSelect={onSelect} />
+        <ShowcaseCard key={`${item.id}-${i}`} item={item} onSelect={onSelect} eager={i < 2} />
       ))}
     </div>
   );
@@ -179,11 +180,13 @@ function ShowcaseCard({
   item,
   onSelect,
   compact = false,
+  eager = false,
   className = '',
 }: {
   item: PortfolioItem;
   onSelect: (item: PortfolioItem) => void;
   compact?: boolean;
+  eager?: boolean;
   className?: string;
 }) {
   const tier = getTier(item.tier);
@@ -200,7 +203,7 @@ function ShowcaseCard({
           slug={item.slug}
           alt={item.title}
           size="sm"
-          eager
+          eager={eager}
           keepAspect={!compact}
           className={compact ? 'size-full' : undefined}
           imgClassName={compact ? 'size-full object-cover object-top group-hover:scale-[1.04]' : 'group-hover:scale-[1.04]'}
