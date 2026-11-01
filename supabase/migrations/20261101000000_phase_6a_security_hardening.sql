@@ -405,6 +405,7 @@ create trigger trg_enforce_message_integrity
 -- ----------------------------------------------------------------------------
 -- 7. Update public_queue_view: Anonymise & Remove Internal Commission UUIDs
 -- ----------------------------------------------------------------------------
+drop view if exists public.public_queue_view cascade;
 create or replace view public.public_queue_view
 with (security_invoker = false)
 as
