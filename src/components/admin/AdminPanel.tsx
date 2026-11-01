@@ -23,6 +23,7 @@ import { useStudio } from '@/context/StudioContext';
 import { ACCENT_CLASSES, TIER_ACCENT, cn, formatMoney, formatShortDate, formatUsd, getTier } from '@/lib/utils';
 import { SectionHeading } from '@/components/ui/SectionHeading';
 import { Reveal } from '@/components/ui/Reveal';
+import { uploadWipArtwork } from '@/lib/storage';
 import type { AvailabilityStatus, TierId } from '@/types';
 
 const WEEKDAYS = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
@@ -128,16 +129,42 @@ export function AdminPanel() {
     setWipNote('');
   };
 
-  const handleWipFileSelect = (e: ChangeEvent<HTMLInputElement>) => {
+  const handleWipFileSelect = async (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file || !selectedOrder) return;
-    const url = URL.createObjectURL(file);
-    uploadArtistWip(selectedOrder.id, {
-      title: wipTitle.trim() || `${wipIsFinal ? 'Final' : 'WIP'} · ${file.name}`,
-      artistNote: wipNote.trim() || 'Uploaded new progress image from Admin Panel.',
-      isFinal: wipIsFinal,
-      imageUrl: url,
-    });
+
+    const title = wipTitle.trim() || `${wipIsFinal ? 'Final' : 'WIP'} · ${file.name}`;
+    const artistNote = wipNote.trim() || 'Uploaded new progress image from Admin Panel.';
+
+    if (selectedOrder.id !== 'MRU-KITSUNE') {
+      showToast('Processing artwork, applying watermark shield & uploading...');
+      const { previewPath, masterPath, error } = await uploadWipArtwork(
+        selectedOrder.id,
+        selectedOrder.orderCode || selectedOrder.id,
+        file,
+        wipIsFinal,
+      );
+      if (error || !previewPath) {
+        showToast(`Upload failed: ${error ?? 'Unknown error'}`);
+      } else {
+        uploadArtistWip(selectedOrder.id, {
+          title,
+          artistNote,
+          isFinal: wipIsFinal,
+          imageUrl: previewPath,
+          highResUrl: masterPath || undefined,
+        });
+      }
+    } else {
+      const url = URL.createObjectURL(file);
+      uploadArtistWip(selectedOrder.id, {
+        title,
+        artistNote,
+        isFinal: wipIsFinal,
+        imageUrl: url,
+      });
+    }
+
     setWipTitle('');
     setWipNote('');
     e.target.value = '';

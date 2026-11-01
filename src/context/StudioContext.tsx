@@ -30,6 +30,7 @@ import { ADDON_RATES, TIERS } from '@/data/artist';
 import {
   artistAdminUid,
   insertCommissionInSupabase,
+  insertWipInDb,
   isSupabaseConfigured,
   signInWithOAuthProvider,
   submitPaymentReceiptInDb,
@@ -202,7 +203,7 @@ interface StudioState {
   updateOrderSchedule: (orderId: string, startDate: string, estEndDate: string) => void;
   uploadArtistWip: (
     orderId: string,
-    payload: { title: string; artistNote: string; isFinal: boolean; imageUrl?: string; slug?: string },
+    payload: { title: string; artistNote: string; isFinal: boolean; imageUrl?: string; highResUrl?: string; slug?: string },
   ) => void;
   uploadPaymentReceipt: (orderId: string, kind: 'deposit' | 'final', attachmentUrl?: string) => void;
   approveOrderSketch: (orderId: string) => void;
@@ -740,38 +741,54 @@ export function StudioProvider({ children }: { children: ReactNode }) {
   );
 
   const uploadArtistWip = useCallback(
-    (
+    async (
       orderId: string,
-      payload: { title: string; artistNote: string; isFinal: boolean; imageUrl?: string; slug?: string },
+      payload: { title: string; artistNote: string; isFinal: boolean; imageUrl?: string; highResUrl?: string; slug?: string },
     ) => {
       const nowIso = new Date().toISOString();
-      const newWip: WipUploadItem = {
-        id: `wip-${Date.now()}`,
-        commissionId: orderId,
-        stage: payload.isFinal ? 'completed' : 'sketch_approval',
-        title: payload.title,
-        slug: payload.slug ?? (payload.imageUrl ? undefined : 'kitsunegem'),
-        imageUrl: payload.imageUrl,
-        isFinal: payload.isFinal,
-        artistNote: payload.artistNote,
-        approvedByClient: false,
-        createdAt: nowIso,
-      };
+      const nextStage: CommissionStage = payload.isFinal ? 'completed' : 'sketch_approval';
+      const nextProgress = payload.isFinal ? 100 : 62;
 
-      setLocalOrders((prev) =>
-        prev.map((o) => {
-          if (o.id !== orderId) return o;
-          return {
-            ...o,
-            stage: payload.isFinal ? 'completed' : 'sketch_approval',
-            progress: payload.isFinal ? 100 : 62,
-            wips: [newWip, ...o.wips],
-          };
-        }),
-      );
-      showToast(payload.isFinal ? 'Final master file unlocked!' : 'Watermarked WIP uploaded!');
+      if (isSupabaseConfigured && orderId !== DEMO_SHOWCASE_ORDER.id) {
+        await insertWipInDb(orderId, {
+          stage: nextStage,
+          title: payload.title,
+          watermarkedUrl: payload.imageUrl || '',
+          highResUrl: payload.highResUrl,
+          isFinal: payload.isFinal,
+          artistNote: payload.artistNote,
+        });
+        updateStageMut.mutate({ commissionId: orderId, stage: nextStage, progress: nextProgress });
+        showToast(payload.isFinal ? 'Final master file unlocked & stage completed!' : 'Watermarked WIP uploaded to client vault!');
+      } else {
+        const newWip: WipUploadItem = {
+          id: `wip-${Date.now()}`,
+          commissionId: orderId,
+          stage: nextStage,
+          title: payload.title,
+          slug: payload.slug ?? (payload.imageUrl ? undefined : 'kitsunegem'),
+          imageUrl: payload.imageUrl,
+          isFinal: payload.isFinal,
+          artistNote: payload.artistNote,
+          approvedByClient: false,
+          createdAt: nowIso,
+        };
+
+        setLocalOrders((prev) =>
+          prev.map((o) => {
+            if (o.id !== orderId) return o;
+            return {
+              ...o,
+              stage: nextStage,
+              progress: nextProgress,
+              wips: [newWip, ...o.wips],
+            };
+          }),
+        );
+        showToast(payload.isFinal ? 'Final master file unlocked!' : 'Watermarked WIP uploaded!');
+      }
     },
-    [showToast],
+    [showToast, updateStageMut],
   );
 
   const sendOrderMessage = useCallback(

@@ -155,6 +155,7 @@ export interface WipUploadItem {
   /** Portfolio slug or image URL for preview. */
   slug?: string;
   imageUrl?: string;
+  highResUrl?: string | null;
   isFinal: boolean;
   artistNote: string;
   approvedByClient: boolean;

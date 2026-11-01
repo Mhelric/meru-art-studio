@@ -14,6 +14,7 @@ import type {
   WipUploadItem,
 } from '@/types';
 import { TIER_ACCENT } from '@/lib/utils';
+import { resolveCommissionMedia } from '@/lib/storage';
 
 const DEFAULT_SUPABASE_URL = 'https://ikeeddqgliobgfglytgr.supabase.co';
 const DEFAULT_SUPABASE_ANON_KEY =
@@ -157,6 +158,7 @@ export function mapWipRow(row: WipUploadRow): WipUploadItem {
     stage: row.stage,
     title: row.title,
     imageUrl: row.watermarked_url,
+    highResUrl: row.high_res_url,
     isFinal: row.is_final,
     artistNote: row.artist_note,
     approvedByClient: row.approved_by_client,
@@ -288,13 +290,15 @@ export async function fetchMyCommissions(userId: string): Promise<SubmittedOrder
 
   if (error || !data) return [];
 
-  return (data as CommissionRow[]).map((row) =>
+  const mapped = (data as CommissionRow[]).map((row) =>
     mapCommissionRowToSubmitted(
       row,
       (row.wips ?? []).map(mapWipRow),
       (row.messages ?? []).map(mapMessageRow),
     ),
   );
+
+  return Promise.all(mapped.map(resolveCommissionMedia));
 }
 
 /** Fetch all commissions for the artist admin. */
@@ -312,13 +316,15 @@ export async function fetchAllCommissionsAdmin(): Promise<SubmittedOrder[]> {
 
   if (error || !data) return [];
 
-  return (data as CommissionRow[]).map((row) =>
+  const mapped = (data as CommissionRow[]).map((row) =>
     mapCommissionRowToSubmitted(
       row,
       (row.wips ?? []).map(mapWipRow),
       (row.messages ?? []).map(mapMessageRow),
     ),
   );
+
+  return Promise.all(mapped.map(resolveCommissionMedia));
 }
 
 /** Insert a new commission into Supabase (enforces RLS + 1-pending-request-per-user rule). */
@@ -428,12 +434,12 @@ export async function toggleCommissionPaymentInDb(
 
   // 2. Reconcile payments audit record if verifying
   if (value) {
-    const paymentKind = field === 'deposit_paid' ? 'deposit' : 'final';
+    const paymentKinds = field === 'deposit_paid' ? ['deposit', 'full'] : ['final', 'full'];
     await supabase
       .from('payments')
       .update({ status: 'verified', updated_at: new Date().toISOString() })
       .eq('commission_id', commissionId)
-      .eq('kind', paymentKind)
+      .in('kind', paymentKinds)
       .eq('status', 'submitted');
   }
 
@@ -508,6 +514,38 @@ export async function submitPaymentReceiptInDb(
 
   if (error || !data) return { payment: null, error: error?.message ?? 'Failed to record payment' };
   return { payment: mapPaymentRow(data as PaymentRow), error: null };
+}
+
+/** Insert a WIP or final deliverable in Supabase wip_uploads (Admin action). */
+export async function insertWipInDb(
+  commissionId: string,
+  payload: {
+    stage: CommissionStage;
+    title: string;
+    watermarkedUrl: string;
+    highResUrl?: string | null;
+    isFinal: boolean;
+    artistNote?: string;
+  },
+): Promise<{ wip: WipUploadItem | null; error: string | null }> {
+  if (!supabase) return { wip: null, error: 'Supabase not connected' };
+
+  const { data, error } = await supabase
+    .from('wip_uploads')
+    .insert({
+      commission_id: commissionId,
+      stage: payload.stage,
+      title: payload.title,
+      watermarked_url: payload.watermarkedUrl,
+      high_res_url: payload.highResUrl ?? null,
+      is_final: payload.isFinal,
+      artist_note: payload.artistNote ?? '',
+    })
+    .select('*')
+    .single();
+
+  if (error || !data) return { wip: null, error: error?.message ?? 'Failed to upload WIP' };
+  return { wip: mapWipRow(data as WipUploadRow), error: null };
 }
 
 /** Update studio settings row (Admin action). */

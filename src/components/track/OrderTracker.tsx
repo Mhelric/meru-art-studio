@@ -23,7 +23,8 @@ import { artSrc, ArtImage } from '@/components/portfolio/ArtImage';
 import { SectionHeading } from '@/components/ui/SectionHeading';
 import { BrandIcon } from '@/components/ui/BrandIcon';
 import { EASE, Reveal } from '@/components/ui/Reveal';
-import type { AttachmentKind, SubmittedOrder } from '@/types';
+import { uploadReceiptFile, uploadChatAttachment, getSignedMediaUrl, STORAGE_BUCKETS } from '@/lib/storage';
+import type { AttachmentKind, SubmittedOrder, WipUploadItem } from '@/types';
 
 /**
  * Phase 4 & 6B: Authenticated Client "Pizza-Tracker" Order Room, Payment Gates & Realtime Chat.
@@ -57,6 +58,7 @@ export function OrderTracker() {
   const receiptInputRef = useRef<HTMLInputElement | null>(null);
   const chatFileInputRef = useRef<HTMLInputElement | null>(null);
   const [pendingReceiptType, setPendingReceiptType] = useState<'deposit' | 'final'>('deposit');
+  const [downloadingWipId, setDownloadingWipId] = useState<string | null>(null);
 
   const order = useMemo(
     () => submittedOrders.find((o) => o.id === activeOrderId) ?? submittedOrders[0],
@@ -101,24 +103,84 @@ export function OrderTracker() {
     receiptInputRef.current?.click();
   };
 
-  const handleReceiptFile = (e: ChangeEvent<HTMLInputElement>) => {
+  const handleReceiptFile = async (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    const url = file ? URL.createObjectURL(file) : undefined;
-    uploadPaymentReceipt(order.id, pendingReceiptType, url);
+    if (!file) return;
+
+    if (user && !isDemo) {
+      showToast('Uploading payment receipt to secure vault...');
+      const { path, error } = await uploadReceiptFile(user.id, order.id, file);
+      if (error || !path) {
+        showToast(`Upload failed: ${error ?? 'Unknown error'}`);
+      } else {
+        uploadPaymentReceipt(order.id, pendingReceiptType, path);
+      }
+    } else {
+      const url = URL.createObjectURL(file);
+      uploadPaymentReceipt(order.id, pendingReceiptType, url);
+    }
     e.target.value = '';
   };
 
-  const handleChatFile = (e: ChangeEvent<HTMLInputElement>) => {
+  const handleChatFile = async (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    const url = URL.createObjectURL(file);
-    sendOrderMessage(
-      order.id,
-      chatInput.trim() || `Attached ${attachmentKind}: ${file.name}`,
-      { attachmentUrl: url, attachmentKind },
-    );
+
+    if (user && !isDemo) {
+      showToast('Uploading chat attachment...');
+      const { path, error } = await uploadChatAttachment(user.id, order.id, file);
+      if (error || !path) {
+        showToast(`Upload failed: ${error ?? 'Unknown error'}`);
+      } else {
+        sendOrderMessage(
+          order.id,
+          chatInput.trim() || `Attached ${attachmentKind}: ${file.name}`,
+          { attachmentUrl: path, attachmentKind },
+        );
+      }
+    } else {
+      const url = URL.createObjectURL(file);
+      sendOrderMessage(
+        order.id,
+        chatInput.trim() || `Attached ${attachmentKind}: ${file.name}`,
+        { attachmentUrl: url, attachmentKind },
+      );
+    }
     setChatInput('');
     e.target.value = '';
+  };
+
+  const handleDownloadMaster = async (wip: WipUploadItem) => {
+    if (wip.slug) {
+      window.open(artSrc(wip.slug, 'full'), '_blank');
+      return;
+    }
+    const masterPath = wip.highResUrl;
+    if (!masterPath) {
+      showToast('Master deliverable path not found.');
+      return;
+    }
+    setDownloadingWipId(wip.id);
+    showToast('Authorizing secure master deliverable download...');
+    try {
+      const signedUrl = await getSignedMediaUrl(STORAGE_BUCKETS.wips, masterPath, 300);
+      if (!signedUrl) {
+        showToast('Download unauthorized: full-res master deliverable is only unlocked once completed.');
+        return;
+      }
+      const anchor = document.createElement('a');
+      anchor.href = signedUrl;
+      anchor.download = `${orderDisplayCode}-${order.tier}-master.png`;
+      anchor.target = '_blank';
+      document.body.appendChild(anchor);
+      anchor.click();
+      document.body.removeChild(anchor);
+      showToast('Download started!');
+    } catch (err: any) {
+      showToast(`Download failed: ${err?.message ?? 'Unauthorized'}`);
+    } finally {
+      setDownloadingWipId(null);
+    }
   };
 
   const handleChatSubmit = (e: FormEvent) => {
@@ -380,7 +442,6 @@ export function OrderTracker() {
                 {order.wips.map((wip) => {
                   const lockedFinal = wip.isFinal && !isCompleted;
                   const showWatermark = !isCompleted;
-                  const downloadHref = wip.slug ? artSrc(wip.slug, 'full') : wip.imageUrl;
 
                   return (
                     <div
@@ -458,14 +519,16 @@ export function OrderTracker() {
                       )}
 
                       <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
-                        {isCompleted && downloadHref ? (
-                          <a
-                            href={downloadHref}
-                            download={`${orderDisplayCode}-${order.tier}-highres.webp`}
-                            className="inline-flex items-center gap-1.5 rounded-full bg-teal px-4 py-2 text-xs font-medium text-white transition hover:bg-ink"
+                        {isCompleted && (wip.highResUrl || wip.slug) ? (
+                          <button
+                            type="button"
+                            disabled={downloadingWipId === wip.id}
+                            onClick={() => handleDownloadMaster(wip)}
+                            className="inline-flex items-center gap-1.5 rounded-full bg-teal px-4 py-2 text-xs font-medium text-white transition hover:bg-ink disabled:opacity-50"
                           >
-                            <Download className="size-3.5" /> Download High-Res PNG (300 DPI)
-                          </a>
+                            <Download className="size-3.5" />
+                            {downloadingWipId === wip.id ? 'Authorizing download...' : 'Download High-Res PNG (300 DPI)'}
+                          </button>
                         ) : (
                           <span className="text-[11px] text-ink-mute">
                             Protected by Meru Art Studio watermark shield.
