@@ -9,7 +9,6 @@ import {
   ImagePlus,
   Lock,
   MessageSquare,
-  Paperclip,
   Receipt,
   Send,
   ShieldAlert,
@@ -22,16 +21,19 @@ import { useStudio } from '@/context/StudioContext';
 import { ACCENT_CLASSES, TIER_ACCENT, cn, formatMoney, formatShortDate, getTier } from '@/lib/utils';
 import { artSrc, ArtImage } from '@/components/portfolio/ArtImage';
 import { SectionHeading } from '@/components/ui/SectionHeading';
+import { BrandIcon } from '@/components/ui/BrandIcon';
 import { EASE, Reveal } from '@/components/ui/Reveal';
 import type { AttachmentKind, SubmittedOrder } from '@/types';
 
 /**
- * Phase 4: Authenticated Client "Pizza-Tracker" Order Room, Payment Gates & Realtime Chat.
+ * Phase 4 & 6B: Authenticated Client "Pizza-Tracker" Order Room, Payment Gates & Realtime Chat.
  * Includes:
- * 1. Top Action Banner telling the client exactly what is needed right now.
- * 2. 6-Stage Visual "Pizza-Tracker" Progress Stepper (+ interactive Stage Simulator for portfolio demos).
- * 3. Watermarked WIP Gallery that unlocks the unwatermarked high-res download ONLY when `stage === 'completed'`.
- * 4. Realtime Order Chat with image attachment support for payment receipts & sketch redlines.
+ * 1. Logged-out state requiring Google sign-in (or ?demo=1 link).
+ * 2. Empty state when a logged-in user has 0 orders.
+ * 3. Real Supabase commission data with demo isolation.
+ * 4. 6-Stage Visual "Pizza-Tracker" Progress Stepper.
+ * 5. Watermarked WIP Gallery that unlocks the unwatermarked high-res download ONLY when `stage === 'completed'`.
+ * 6. Realtime Order Chat with image attachment support for payment receipts & sketch redlines.
  */
 export function OrderTracker() {
   const {
@@ -44,12 +46,11 @@ export function OrderTracker() {
     sendOrderMessage,
     openDrawer,
     showToast,
+    user,
+    isDemoMode,
+    isLoadingOrders,
+    signInWithGoogle,
   } = useStudio();
-
-  const order = useMemo(
-    () => submittedOrders.find((o) => o.id === activeOrderId) ?? submittedOrders[0],
-    [submittedOrders, activeOrderId],
-  );
 
   const [chatInput, setChatInput] = useState('');
   const [attachmentKind, setAttachmentKind] = useState<AttachmentKind>('receipt');
@@ -57,14 +58,43 @@ export function OrderTracker() {
   const chatFileInputRef = useRef<HTMLInputElement | null>(null);
   const [pendingReceiptType, setPendingReceiptType] = useState<'deposit' | 'final'>('deposit');
 
+  const order = useMemo(
+    () => submittedOrders.find((o) => o.id === activeOrderId) ?? submittedOrders[0],
+    [submittedOrders, activeOrderId],
+  );
+
+  // 1. Loading State
+  if (isLoadingOrders && !isDemoMode) {
+    return (
+      <section className="pt-32 pb-16">
+        <div className="mx-auto max-w-md text-center">
+          <div className="mx-auto size-9 animate-spin rounded-full border-2 border-ink border-t-transparent" />
+          <p className="mt-4 font-display text-sm font-medium text-ink">Loading your commissions...</p>
+        </div>
+      </section>
+    );
+  }
+
+  // 2. Logged-out state
+  if (!user && !isDemoMode) {
+    return <LoggedOutTrackView onSignIn={signInWithGoogle} />;
+  }
+
+  // 3. Logged-in but zero orders submitted yet
+  if (user && submittedOrders.length === 0) {
+    return <EmptyTrackView onOpenDrawer={() => openDrawer({ step: 1 })} />;
+  }
+
   if (!order) return null;
 
+  const isDemo = isDemoMode || order.authMethod === 'demo';
   const tier = getTier(order.tier);
   const accent = ACCENT_CLASSES[TIER_ACCENT[order.tier]];
   const currentStepIdx = STAGE_STEPS.findIndex((s) => s.id === order.stage);
   const currentStep = STAGE_STEPS[currentStepIdx] ?? STAGE_STEPS[0];
   const remainingUsd = Math.max(0, order.totalUsd - order.depositUsd);
   const isCompleted = order.stage === 'completed';
+  const orderDisplayCode = order.orderCode || order.id;
 
   const triggerReceiptUpload = (kind: 'deposit' | 'final') => {
     setPendingReceiptType(kind);
@@ -120,7 +150,7 @@ export function OrderTracker() {
       <div className="mb-6 flex flex-col justify-between gap-4 lg:flex-row lg:items-end">
         <div>
           <SectionHeading
-            eyebrow="Client Workspace · RLS Protected"
+            eyebrow={isDemo ? 'Demo Showcase Mode' : 'Client Workspace · Supabase Connected'}
             title="Live commission tracker & order room"
             subtitle="Follow your artwork from initial brief to high-resolution download, upload payment receipts, and chat with Meru in real time."
           />
@@ -130,6 +160,7 @@ export function OrderTracker() {
         <div className="mb-10 flex flex-wrap items-center gap-2">
           {submittedOrders.map((o) => {
             const active = o.id === order.id;
+            const code = o.orderCode || o.id;
             return (
               <button
                 key={o.id}
@@ -142,7 +173,7 @@ export function OrderTracker() {
                     : 'border border-line bg-paper text-ink-soft hover:border-ink/30 hover:text-ink',
                 )}
               >
-                #{o.id} · {getTier(o.tier).label}
+                #{code} · {getTier(o.tier).label}
               </button>
             );
           })}
@@ -156,40 +187,43 @@ export function OrderTracker() {
         </div>
       </div>
 
-      {/* Interactive Demo Stage Switcher Bar (for portfolio visitors/recruiters) */}
-      <Reveal className="mb-5 rounded-2xl border border-dashed border-ink/25 bg-cream/60 p-3 sm:px-4">
-        <div className="flex flex-col justify-between gap-2 sm:flex-row sm:items-center">
-          <div className="flex items-center gap-2 text-xs text-ink">
-            <Eye className="size-4 shrink-0 text-coral" />
-            <span>
-              <strong>Portfolio Interactive Preview:</strong> Click any stage below to test how the payment gates, watermark shield, and high-res download behave:
-            </span>
+      {/* Interactive Demo Stage Switcher Bar (strictly for demo showcase orders) */}
+      {isDemo && (
+        <Reveal className="mb-5 rounded-2xl border border-dashed border-ink/25 bg-cream/60 p-3 sm:px-4">
+          <div className="flex flex-col justify-between gap-2 sm:flex-row sm:items-center">
+            <div className="flex items-center gap-2 text-xs text-ink">
+              <Eye className="size-4 shrink-0 text-coral" />
+              <span>
+                <strong>Portfolio Interactive Preview:</strong> Click any stage below to test how the payment gates, watermark shield, and high-res download behave:
+              </span>
+            </div>
+            <div className="no-scrollbar flex gap-1 overflow-x-auto pb-0.5 sm:pb-0">
+              {STAGE_STEPS.map((s, idx) => {
+                const active = s.id === order.stage;
+                return (
+                  <button
+                    key={s.id}
+                    type="button"
+                    onClick={() => setOrderStage(order.id, s.id)}
+                    className={cn(
+                      'shrink-0 rounded-full px-2.5 py-1 text-[11px] font-medium transition-colors',
+                      active ? 'bg-coral text-white' : 'bg-paper text-ink-soft hover:text-ink',
+                    )}
+                  >
+                    {idx + 1}. {s.shortLabel}
+                  </button>
+                );
+              })}
+            </div>
           </div>
-          <div className="no-scrollbar flex gap-1 overflow-x-auto pb-0.5 sm:pb-0">
-            {STAGE_STEPS.map((s, idx) => {
-              const active = s.id === order.stage;
-              return (
-                <button
-                  key={s.id}
-                  type="button"
-                  onClick={() => setOrderStage(order.id, s.id)}
-                  className={cn(
-                    'shrink-0 rounded-full px-2.5 py-1 text-[11px] font-medium transition-colors',
-                    active ? 'bg-coral text-white' : 'bg-paper text-ink-soft hover:text-ink',
-                  )}
-                >
-                  {idx + 1}. {s.shortLabel}
-                </button>
-              );
-            })}
-          </div>
-        </div>
-      </Reveal>
+        </Reveal>
+      )}
 
       {/* 1. TOP ACTION BANNER */}
       <Reveal delay={0.05}>
         <TopActionBanner
           order={order}
+          isDemo={isDemo}
           remainingUsd={remainingUsd}
           onSimulateArtistApprove={() => {
             setOrderStage(order.id, 'awaiting_deposit');
@@ -207,7 +241,7 @@ export function OrderTracker() {
           <div className="flex items-center gap-2.5">
             <span className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium ${accent.soft} ${accent.text}`}>
               <span className={`size-1.5 rounded-full ${accent.dot}`} />
-              Order #{order.id} · {tier.label}
+              Order #{orderDisplayCode} · {tier.label}
             </span>
             <h3 className="font-display text-xl font-semibold text-ink sm:text-2xl">
               {currentStep.fullLabel}
@@ -218,55 +252,62 @@ export function OrderTracker() {
             <span className="text-ink-mute">
               Total: <strong className="text-ink">{formatMoney(order.totalUsd, order.currency)}</strong>
             </span>
-            <span className="rounded-full bg-teal-soft px-2.5 py-0.5 font-semibold text-teal">
-              {currentStep.progress}% Complete
+            <span className="text-ink-mute">
+              Deposit: <strong className="text-ink">{formatMoney(order.depositUsd, order.currency)}</strong>
+            </span>
+            <span className="text-ink-mute">
+              Target: <strong className="text-ink">{order.estEndDate ? formatShortDate(order.estEndDate) : 'TBD'}</strong>
             </span>
           </div>
         </div>
 
-        {/* Animated progress bar */}
-        <div className="h-2.5 w-full overflow-hidden rounded-full bg-cream">
+        {/* Progress bar line */}
+        <div className="relative mb-6 h-2 w-full overflow-hidden rounded-full bg-cream">
           <motion.div
             initial={{ width: 0 }}
-            animate={{ width: `${currentStep.progress}%` }}
+            animate={{ width: `${order.progress}%` }}
             transition={{ duration: 0.6, ease: EASE }}
-            className="h-full rounded-full bg-gradient-to-r from-coral via-mustard to-teal"
+            className={`h-full rounded-full ${accent.bar}`}
           />
         </div>
 
-        {/* 6-Step Grid */}
-        <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
+        {/* 6 Step Cards */}
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
           {STAGE_STEPS.map((step, idx) => {
-            const done = idx < currentStepIdx || isCompleted;
-            const current = idx === currentStepIdx;
+            const isPassed = idx < currentStepIdx;
+            const isCurrent = idx === currentStepIdx;
             return (
               <button
                 key={step.id}
                 type="button"
-                onClick={() => setOrderStage(order.id, step.id)}
+                onClick={() => {
+                  if (isDemo) setOrderStage(order.id, step.id);
+                }}
+                disabled={!isDemo}
                 className={cn(
                   'flex flex-col justify-between rounded-2xl border p-3 text-left transition-all',
-                  current
-                    ? 'border-ink bg-cream/70 ring-1 ring-ink'
-                    : done
-                      ? 'border-teal/35 bg-teal-soft/35 text-ink'
-                      : 'border-line bg-canvas/60 text-ink-mute hover:border-ink/25',
+                  isCurrent
+                    ? 'border-ink bg-paper shadow-xs ring-1 ring-ink/20'
+                    : isPassed
+                      ? 'border-line bg-paper/60 text-ink'
+                      : 'border-transparent bg-cream/50 text-ink-mute',
+                  isDemo && 'cursor-pointer hover:border-coral',
                 )}
               >
                 <div className="flex items-center justify-between">
                   <span
                     className={cn(
-                      'grid size-6 place-items-center rounded-full text-[11px] font-semibold',
-                      current
+                      'grid size-5 place-items-center rounded-full text-[10px] font-bold',
+                      isPassed
                         ? 'bg-ink text-white'
-                        : done
-                          ? 'bg-teal text-white'
-                          : 'bg-paper text-ink-mute ring-1 ring-line',
+                        : isCurrent
+                          ? 'bg-coral text-white'
+                          : 'bg-paper text-ink-mute',
                     )}
                   >
-                    {done ? <Check className="size-3.5" strokeWidth={3} /> : idx + 1}
+                    {isPassed ? <Check className="size-3" /> : idx + 1}
                   </span>
-                  {current && (
+                  {isCurrent && (
                     <span className="rounded-full bg-coral-soft px-2 py-0.5 text-[10px] font-semibold text-coral">
                       Current
                     </span>
@@ -324,6 +365,16 @@ export function OrderTracker() {
                   As soon as your upfront deposit is verified, Meru will post watermarked pose sketches and colour checks right here.
                 </p>
               </div>
+            ) : order.wips.length === 0 ? (
+              <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-line bg-canvas px-6 py-12 text-center">
+                <Sparkles className="size-8 text-coral" />
+                <p className="mt-3 font-display text-xl font-semibold text-ink">
+                  Sketching in Progress
+                </p>
+                <p className="mt-1 max-w-sm text-xs text-ink-soft">
+                  Meru is currently working on your initial draft. WIP files will appear here as soon as they are uploaded.
+                </p>
+              </div>
             ) : (
               <div className="space-y-4">
                 {order.wips.map((wip) => {
@@ -348,100 +399,87 @@ export function OrderTracker() {
                         </span>
                       </div>
 
-                      {/* Image Container with Diagonal Watermark Shield */}
-                      <div
-                        onContextMenu={(e) => e.preventDefault()}
-                        className="relative flex h-64 items-center justify-center overflow-hidden rounded-xl border border-line bg-cream/70 select-none sm:h-80"
-                      >
+                      <div className="relative aspect-4/3 w-full overflow-hidden rounded-xl border border-line bg-paper select-none">
                         {wip.slug ? (
                           <ArtImage
                             slug={wip.slug}
                             alt={wip.title}
-                            size={isCompleted && wip.isFinal ? 'full' : 'sm'}
-                            keepAspect={false}
+                            size="sm"
                             className={cn(
-                              'flex size-full items-center justify-center bg-transparent',
-                              lockedFinal && 'blur-md brightness-90',
+                              'size-full object-contain transition-all duration-300',
+                              lockedFinal && 'blur-xl grayscale opacity-30',
                             )}
-                            imgClassName="max-h-full max-w-full object-contain"
                           />
-                        ) : (
-                          wip.imageUrl && (
-                            <img
-                              src={wip.imageUrl}
-                              alt={wip.title}
-                              className="max-h-full max-w-full object-contain"
-                            />
-                          )
-                        )}
+                        ) : wip.imageUrl ? (
+                          <img
+                            src={wip.imageUrl}
+                            alt={wip.title}
+                            className={cn(
+                              'size-full object-contain transition-all duration-300',
+                              lockedFinal && 'blur-xl grayscale opacity-30',
+                            )}
+                          />
+                        ) : null}
 
-                        {/* Diagonal Repeating Watermark Overlay during progress */}
-                        {showWatermark && (
-                          <div
-                            aria-hidden
-                            className="pointer-events-none absolute inset-0 flex flex-wrap items-center justify-center gap-6 overflow-hidden opacity-35"
-                          >
-                            {Array.from({ length: 12 }).map((_, i) => (
-                              <span
-                                key={i}
-                                className="-rotate-24 font-display text-base font-bold tracking-widest whitespace-nowrap text-ink uppercase select-none sm:text-lg"
-                              >
-                                MERU ART · WIP PREVIEW · DO NOT REPOST
-                              </span>
-                            ))}
+                        {/* Protective Watermark Overlay */}
+                        {showWatermark && !lockedFinal && (
+                          <div className="pointer-events-none absolute inset-0 grid place-items-center bg-black/10 backdrop-blur-[0.5px]">
+                            <div className="rotate-[-22deg] text-center select-none">
+                              <p className="font-display text-2xl font-extrabold tracking-widest text-white/50 uppercase drop-shadow-md sm:text-4xl">
+                                MERU ART · WIP PREVIEW
+                              </p>
+                              <p className="text-[11px] font-bold tracking-widest text-white/60 uppercase drop-shadow-sm">
+                                Commission #{orderDisplayCode} · Do Not Repost
+                              </p>
+                            </div>
                           </div>
                         )}
 
-                        {/* Locked Final Overlay */}
+                        {/* Locked final state overlay */}
                         {lockedFinal && (
-                          <div className="absolute inset-0 flex flex-col items-center justify-center bg-ink/45 p-4 text-center text-white backdrop-blur-[2px]">
-                            <Lock className="size-7 text-mustard" />
-                            <p className="mt-2 font-display text-xl font-semibold">
-                              Final High-Res Locked
-                            </p>
-                            <p className="mt-0.5 max-w-xs text-xs text-white/85">
-                              Unlocks automatically once final payment is verified and the commission reaches <strong>Completed</strong>.
+                          <div className="absolute inset-0 flex flex-col items-center justify-center bg-paper/85 p-6 text-center backdrop-blur-md">
+                            <span className="grid size-12 place-items-center rounded-2xl bg-coral-soft text-coral">
+                              <Lock className="size-6" />
+                            </span>
+                            <h4 className="mt-3 font-display text-xl font-semibold text-ink">
+                              High-Res Master File Locked
+                            </h4>
+                            <p className="mt-1 max-w-xs text-xs text-ink-soft">
+                              The full 300 DPI master download unlocks automatically once the final stage is marked completed.
                             </p>
                           </div>
                         )}
                       </div>
 
-                      {/* Artist Note & Action Bar */}
-                      <div className="mt-3 flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
-                        <p className="text-xs text-ink-soft">
-                          <strong className="text-ink">Meru’s Note:</strong> {wip.artistNote}
+                      {wip.artistNote && (
+                        <p className="mt-2.5 rounded-xl bg-paper px-3 py-2 text-xs text-ink-soft">
+                          <strong className="text-ink">Artist Note:</strong> {wip.artistNote}
                         </p>
+                      )}
 
-                        {wip.isFinal ? (
-                          isCompleted && downloadHref ? (
-                            <a
-                              href={downloadHref}
-                              download={`${order.id}-${order.tier}-highres.webp`}
-                              onClick={() => showToast('Downloading unwatermarked High-Res artwork!')}
-                              className="inline-flex shrink-0 items-center justify-center gap-1.5 rounded-full bg-teal px-4 py-2 text-xs font-medium text-white transition hover:opacity-95"
-                            >
-                              <Download className="size-3.5" />
-                              Download High-Res PNG
-                            </a>
-                          ) : (
-                            <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-line bg-paper px-3 py-1.5 text-[11px] font-medium text-ink-mute">
-                              <Lock className="size-3" /> Unlocks at Completed stage
-                            </span>
-                          )
-                        ) : wip.approvedByClient ? (
-                          <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-teal-soft px-3 py-1 text-[11px] font-semibold text-teal">
-                            <CheckCircle2 className="size-3.5" /> Approved by Client
-                          </span>
+                      <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+                        {isCompleted && downloadHref ? (
+                          <a
+                            href={downloadHref}
+                            download={`${orderDisplayCode}-${order.tier}-highres.webp`}
+                            className="inline-flex items-center gap-1.5 rounded-full bg-teal px-4 py-2 text-xs font-medium text-white transition hover:bg-ink"
+                          >
+                            <Download className="size-3.5" /> Download High-Res PNG (300 DPI)
+                          </a>
                         ) : (
-                          order.stage === 'sketch_approval' && (
-                            <button
-                              type="button"
-                              onClick={() => approveOrderSketch(order.id)}
-                              className="inline-flex shrink-0 items-center justify-center gap-1.5 rounded-full bg-ink px-3.5 py-1.5 text-xs font-medium text-white transition hover:bg-coral"
-                            >
-                              <Check className="size-3.5" /> Approve Sketch
-                            </button>
-                          )
+                          <span className="text-[11px] text-ink-mute">
+                            Protected by Meru Art Studio watermark shield.
+                          </span>
+                        )}
+
+                        {wip.stage === 'sketch_approval' && !wip.approvedByClient && (
+                          <button
+                            type="button"
+                            onClick={() => approveOrderSketch(order.id)}
+                            className="inline-flex items-center gap-1 rounded-full border border-ink/30 bg-paper px-3 py-1.5 text-xs font-medium text-ink transition hover:border-ink hover:bg-cream"
+                          >
+                            <Check className="size-3 text-coral" /> Approve this WIP
+                          </button>
                         )}
                       </div>
                     </div>
@@ -450,113 +488,76 @@ export function OrderTracker() {
               </div>
             )}
           </div>
-
-          {/* Order Brief Summary Card */}
-          <div className="card p-4 sm:p-5">
-            <h4 className="font-display text-lg font-semibold text-ink">Submitted Character Brief</h4>
-            <p className="mt-1 text-xs leading-relaxed text-ink-soft">
-              <strong className="text-ink">{order.characterName || 'Character'}:</strong> {order.poseAndVibe}
-            </p>
-            <div className="mt-3 flex flex-wrap gap-2 text-[11px]">
-              <span className="chip">
-                Split: {order.paymentSplit === '50_50' ? '50% Upfront / 50% Sketch' : '100% Upfront'}
-              </span>
-              <span className="chip">
-                Deposit: {order.depositPaid ? '✓ Verified' : 'Pending'} ({formatMoney(order.depositUsd, order.currency)})
-              </span>
-              <span className="chip">
-                TOS Logged: {order.tosAcceptedAt ? new Date(order.tosAcceptedAt).toLocaleDateString() : 'Yes'}
-              </span>
-            </div>
-          </div>
         </Reveal>
 
-        {/* Right: Realtime Order Chat & Receipt/Redline Uploader */}
+        {/* Right: Realtime Order Chat & Receipt Dropper */}
         <Reveal delay={0.2} className="lg:col-span-5">
-          <div className="card flex h-[560px] flex-col overflow-hidden">
-            {/* Chat Header */}
-            <div className="flex items-center justify-between border-b border-line bg-canvas px-4 py-3.5 sm:px-5">
-              <div className="flex items-center gap-2.5">
-                <img
-                  src="/brand/mark-192.png"
-                  alt="Meru Art"
-                  className="size-9 rounded-full border border-line object-cover"
-                />
+          <div className="card flex h-full min-h-[520px] flex-col p-4 sm:p-6">
+            <div className="mb-3 flex items-center justify-between border-b border-line pb-3">
+              <div className="flex items-center gap-2">
+                <span className="grid size-8 place-items-center rounded-xl bg-coral-soft text-coral">
+                  <MessageSquare className="size-4" />
+                </span>
                 <div>
-                  <div className="flex items-center gap-1.5">
-                    <h3 className="font-display text-lg leading-none font-semibold text-ink">
-                      Order Chat · #{order.id}
-                    </h3>
-                    <span className="size-2 rounded-full bg-teal" title="Realtime connected" />
-                  </div>
-                  <p className="mt-0.5 text-[11px] text-ink-mute">
-                    Direct line with Meru · Attach receipts or sketch redlines
-                  </p>
+                  <h4 className="font-display text-base font-semibold text-ink">
+                    Order Chat · #{orderDisplayCode}
+                  </h4>
+                  <p className="text-[11px] text-ink-mute">Direct communication with Meru</p>
                 </div>
               </div>
-              <MessageSquare className="size-4 text-ink-mute" />
             </div>
 
-            {/* Messages Scroll Area */}
-            <div className="flex-1 space-y-3 overflow-y-auto p-4">
-              {order.messages.map((msg) => {
-                const isArtist = msg.senderRole === 'artist';
+            {/* Chat Message List */}
+            <div className="no-scrollbar flex-1 space-y-3 overflow-y-auto py-2 pr-1">
+              {order.messages.map((m) => {
+                const isArtist = m.senderRole === 'artist';
                 return (
                   <div
-                    key={msg.id}
+                    key={m.id}
                     className={cn('flex flex-col', isArtist ? 'items-start' : 'items-end')}
                   >
-                    <div className="mb-1 flex items-center gap-1.5 px-1 text-[10px] text-ink-mute">
-                      <span className="font-medium text-ink-soft">{msg.senderName}</span>
-                      <span>·</span>
-                      <span>
-                        {new Date(msg.createdAt).toLocaleTimeString([], {
-                          hour: '2-digit',
-                          minute: '2-digit',
-                        })}
+                    <div className="mb-1 flex items-center gap-1.5 text-[10px] text-ink-mute">
+                      <span className={cn('font-semibold', isArtist ? 'text-coral' : 'text-teal')}>
+                        {m.senderName}
                       </span>
+                      <span>·</span>
+                      <span>{formatShortDate(m.createdAt.slice(0, 10))}</span>
                     </div>
 
                     <div
                       className={cn(
                         'max-w-[85%] rounded-2xl px-3.5 py-2.5 text-xs leading-relaxed',
                         isArtist
-                          ? ' rounded-tl-sm border border-line bg-canvas text-ink'
-                          : 'rounded-tr-sm bg-ink text-white',
+                          ? 'border border-line bg-paper text-ink'
+                          : 'bg-ink text-white shadow-xs',
                       )}
                     >
-                      {msg.attachmentKind && (
-                        <span
-                          className={cn(
-                            'mb-1.5 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase',
-                            msg.attachmentKind === 'receipt'
-                              ? 'bg-teal-soft text-teal'
-                              : 'bg-mustard-soft text-[#b9800f]',
+                      {m.attachmentUrl && (
+                        <div className="mb-2 overflow-hidden rounded-xl border border-line bg-canvas">
+                          <img
+                            src={m.attachmentUrl}
+                            alt="Attachment"
+                            className="max-h-48 w-full object-contain"
+                          />
+                          {m.attachmentKind && (
+                            <span className="block bg-paper px-2 py-1 text-[10px] font-semibold text-coral uppercase">
+                              Attached: {m.attachmentKind}
+                            </span>
                           )}
-                        >
-                          <Paperclip className="size-2.5" /> {msg.attachmentKind} attached
-                        </span>
+                        </div>
                       )}
-                      <p>{msg.body}</p>
-                      {msg.attachmentUrl && (
-                        <img
-                          src={msg.attachmentUrl}
-                          alt="Chat attachment"
-                          className="mt-2 max-h-40 rounded-xl border border-white/15 object-cover"
-                        />
-                      )}
+                      <p>{m.body}</p>
                     </div>
                   </div>
                 );
               })}
             </div>
 
-            {/* Quick Attachment Tag Selector + Input Form */}
-            <form onSubmit={handleChatSubmit} className="border-t border-line bg-canvas p-3">
-              <div className="mb-2 flex items-center justify-between gap-1.5">
+            {/* Message input */}
+            <form onSubmit={handleChatSubmit} className="mt-3 border-t border-line pt-3">
+              <div className="mb-2 flex items-center justify-between gap-2">
                 <div className="flex items-center gap-1">
-                  <span className="text-[10px] font-medium text-ink-mute">Attach as:</span>
-                  {(['receipt', 'redline', 'reference'] as const).map((k) => (
+                  {(['receipt', 'redline', 'reference'] as AttachmentKind[]).map((k) => (
                     <button
                       key={k}
                       type="button"
@@ -606,8 +607,77 @@ export function OrderTracker() {
   );
 }
 
+function LoggedOutTrackView({ onSignIn }: { onSignIn: () => void }) {
+  return (
+    <section className="pt-28 pb-16 sm:pt-36">
+      <div className="mx-auto max-w-xl text-center">
+        <div className="mx-auto mb-5 grid size-16 place-items-center rounded-3xl border border-line bg-cream shadow-xs">
+          <Lock className="size-8 text-coral" />
+        </div>
+        <SectionHeading
+          eyebrow="Private Client Workspace"
+          title="Sign in to view your orders"
+          subtitle="Your commission tracker, WIP sketches, payment receipts, and direct chat with Meru are private to your Google account."
+        />
+        <div className="mt-8 flex flex-col items-center justify-center gap-3 sm:flex-row">
+          <button
+            type="button"
+            onClick={onSignIn}
+            className="inline-flex items-center gap-2 rounded-full bg-ink px-6 py-3 text-sm font-medium text-white shadow-sm transition hover:bg-coral"
+          >
+            <BrandIcon id="google" className="size-4 fill-white" />
+            Sign in with Google
+          </button>
+          <a
+            href="?demo=1#track"
+            className="inline-flex items-center gap-1.5 rounded-full border border-line bg-paper px-5 py-3 text-sm font-medium text-ink transition hover:bg-cream"
+          >
+            <Eye className="size-4 text-ink-mute" />
+            Preview Demo Room
+          </a>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function EmptyTrackView({ onOpenDrawer }: { onOpenDrawer: () => void }) {
+  return (
+    <section className="pt-28 pb-16 sm:pt-36">
+      <div className="mx-auto max-w-xl text-center">
+        <div className="mx-auto mb-5 grid size-16 place-items-center rounded-3xl border border-line bg-cream shadow-xs">
+          <Sparkles className="size-8 text-coral" />
+        </div>
+        <SectionHeading
+          eyebrow="No Active Orders"
+          title="You don't have any commissions yet"
+          subtitle="Ready to bring your character or concept to life? Submit a brief to request a slot in Meru's queue."
+        />
+        <div className="mt-8 flex flex-col items-center justify-center gap-3 sm:flex-row">
+          <button
+            type="button"
+            onClick={onOpenDrawer}
+            className="inline-flex items-center gap-2 rounded-full bg-ink px-6 py-3 text-sm font-medium text-white shadow-sm transition hover:bg-coral"
+          >
+            <Sparkles className="size-4 text-mustard" />
+            Commission Meru
+          </button>
+          <a
+            href="?demo=1#track"
+            className="inline-flex items-center gap-1.5 rounded-full border border-line bg-paper px-5 py-3 text-sm font-medium text-ink transition hover:bg-cream"
+          >
+            <Eye className="size-4 text-ink-mute" />
+            Preview Demo Showcase
+          </a>
+        </div>
+      </div>
+    </section>
+  );
+}
+
 function TopActionBanner({
   order,
+  isDemo,
   remainingUsd,
   onSimulateArtistApprove,
   onUploadDeposit,
@@ -615,6 +685,7 @@ function TopActionBanner({
   onApproveSketchOnly,
 }: {
   order: SubmittedOrder;
+  isDemo: boolean;
   remainingUsd: number;
   onSimulateArtistApprove: () => void;
   onUploadDeposit: () => void;
@@ -640,13 +711,19 @@ function TopActionBanner({
             </p>
           </div>
         </div>
-        <button
-          type="button"
-          onClick={onSimulateArtistApprove}
-          className="shrink-0 rounded-full bg-ink px-4 py-2.5 text-xs font-medium text-white transition hover:bg-coral"
-        >
-          Simulate Artist Approval →
-        </button>
+        {isDemo ? (
+          <button
+            type="button"
+            onClick={onSimulateArtistApprove}
+            className="shrink-0 rounded-full bg-ink px-4 py-2.5 text-xs font-medium text-white transition hover:bg-coral"
+          >
+            Simulate Artist Approval →
+          </button>
+        ) : (
+          <span className="shrink-0 rounded-full border border-mustard/40 bg-paper px-3.5 py-2 text-xs font-medium text-[#b9800f]">
+            Waiting for Meru's Review
+          </span>
+        )}
       </div>
     );
   }
@@ -667,7 +744,7 @@ function TopActionBanner({
               {order.currency === 'USD' ? 'PayPal' : 'GCash'} deposit receipt ({formatMoney(order.depositUsd, order.currency)}) to unlock the Sketch stage.
             </h3>
             <p className="text-xs text-ink-soft">
-              Attach a screenshot of your payment receipt below or click the button to upload & advance immediately.
+              Attach a screenshot of your payment receipt below. Meru will verify it to begin sketching.
             </p>
           </div>
         </div>
@@ -771,7 +848,7 @@ function TopActionBanner({
               : 'Sketch & payment verified! Meru is working on clean lineart, coloring, and lighting.'}
           </h3>
           <p className="text-xs text-ink-soft">
-            You’ll receive a notification here as soon as the next WIP is uploaded to your vault.
+            You’ll receive an update here as soon as the next WIP is uploaded to your vault.
           </p>
         </div>
       </div>

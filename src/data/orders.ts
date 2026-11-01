@@ -58,6 +58,7 @@ export const STAGE_STEPS: {
  */
 export const DEMO_SHOWCASE_ORDER: SubmittedOrder = {
   id: 'MRU-KITSUNE',
+  orderCode: 'MRU-KITSUNE',
   createdAt: '2026-10-29T10:15:00.000Z',
   tier: 'fullbody',
   characterCount: 1,

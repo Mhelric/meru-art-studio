@@ -1,4 +1,4 @@
-import { siArtstation, siDiscord, siFacebook, siInstagram, siTiktok, siX, siYoutube, type SimpleIcon } from 'simple-icons';
+import { siArtstation, siDiscord, siFacebook, siGoogle, siInstagram, siTiktok, siX, siYoutube, type SimpleIcon } from 'simple-icons';
 
 const ICONS: Record<string, SimpleIcon> = {
   artstation: siArtstation,
@@ -8,6 +8,7 @@ const ICONS: Record<string, SimpleIcon> = {
   instagram: siInstagram,
   facebook: siFacebook,
   discord: siDiscord,
+  google: siGoogle,
 };
 
 /** Brand logos (lucide-react no longer ships brand icons). */

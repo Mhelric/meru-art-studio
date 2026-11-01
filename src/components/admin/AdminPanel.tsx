@@ -492,6 +492,7 @@ export function AdminPanel() {
           <div className="flex flex-wrap gap-1.5">
             {submittedOrders.map((o) => {
               const active = selectedOrder?.id === o.id;
+              const code = o.orderCode || o.id;
               return (
                 <button
                   key={o.id}
@@ -504,7 +505,7 @@ export function AdminPanel() {
                       : 'border border-line bg-canvas text-ink-soft hover:border-ink/30 hover:text-ink',
                   )}
                 >
-                  #{o.id} · {getTier(o.tier).label}
+                  #{code} · {getTier(o.tier).label}
                   {o.stage === 'pending_review' && !o.declined && (
                     <span className="ml-1.5 rounded-full bg-mustard px-1.5 py-0.2 text-[10px] font-bold text-ink">
                       NEW
@@ -529,7 +530,7 @@ export function AdminPanel() {
                       {getTier(selectedOrder.tier).label} × {selectedOrder.characterCount}
                     </span>
                     <span className="font-display text-xl font-semibold text-ink">
-                      #{selectedOrder.id} · {selectedOrder.characterName || 'Client Request'}
+                      #{selectedOrder.orderCode || selectedOrder.id} · {selectedOrder.characterName || 'Client Request'}
                     </span>
                   </div>
                   <p className="mt-1 text-xs text-ink-soft">{selectedOrder.poseAndVibe}</p>
@@ -791,7 +792,7 @@ export function AdminPanel() {
                 onClick={() => setActiveTab('track')}
                 className="flex w-full items-center justify-center gap-1.5 rounded-full border border-ink/25 bg-cream/70 py-2.5 text-xs font-medium text-ink transition hover:bg-ink hover:text-white"
               >
-                <Eye className="size-3.5" /> View #{selectedOrder.id} in Client Tracker Room →
+                <Eye className="size-3.5" /> View #{selectedOrder.orderCode || selectedOrder.id} in Client Tracker Room →
               </button>
             </div>
           </div>

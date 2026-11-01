@@ -1,13 +1,17 @@
 import { createClient, type SupabaseClient, type User } from '@supabase/supabase-js';
 import type {
+  AttachmentKind,
   BlockedRange,
   CommissionStage,
   Currency,
   OrderDraft,
+  OrderMessage,
+  PaymentRecord,
   PaymentSplit,
   PublicQueueSlot,
   SubmittedOrder,
   TierId,
+  WipUploadItem,
 } from '@/types';
 import { TIER_ACCENT } from '@/lib/utils';
 
@@ -86,7 +90,49 @@ export interface CommissionRow {
   start_date: string | null;
   est_end_date: string | null;
   tos_accepted_at: string;
+  tos_version?: string;
+  usd_to_php_rate?: number;
   created_at: string;
+  wips?: WipUploadRow[];
+  messages?: MessageRow[];
+}
+
+export interface WipUploadRow {
+  id: string;
+  commission_id: string;
+  stage: CommissionStage;
+  title: string;
+  watermarked_url: string;
+  high_res_url?: string | null;
+  is_final: boolean;
+  artist_note: string;
+  approved_by_client: boolean;
+  created_at: string;
+}
+
+export interface MessageRow {
+  id: string;
+  commission_id: string;
+  sender_id: string;
+  sender_role: 'artist' | 'client';
+  body: string;
+  attachment_url?: string | null;
+  attachment_kind?: 'receipt' | 'redline' | 'reference' | 'other' | null;
+  created_at: string;
+}
+
+export interface PaymentRow {
+  id: string;
+  commission_id: string;
+  kind: 'deposit' | 'final' | 'full';
+  amount: number;
+  currency: Currency;
+  receipt_path?: string | null;
+  status: 'submitted' | 'verified' | 'rejected';
+  verified_by?: string | null;
+  verified_at?: string | null;
+  created_at: string;
+  updated_at: string;
 }
 
 export function mapPublicQueueRow(row: PublicQueueViewRow): PublicQueueSlot {
@@ -104,9 +150,57 @@ export function mapPublicQueueRow(row: PublicQueueViewRow): PublicQueueSlot {
   };
 }
 
-export function mapCommissionRowToSubmitted(row: CommissionRow): SubmittedOrder {
+export function mapWipRow(row: WipUploadRow): WipUploadItem {
   return {
-    id: row.order_code || row.id.slice(0, 8).toUpperCase(),
+    id: row.id,
+    commissionId: row.commission_id,
+    stage: row.stage,
+    title: row.title,
+    imageUrl: row.watermarked_url,
+    isFinal: row.is_final,
+    artistNote: row.artist_note,
+    approvedByClient: row.approved_by_client,
+    createdAt: row.created_at,
+  };
+}
+
+export function mapMessageRow(row: MessageRow): OrderMessage {
+  return {
+    id: row.id,
+    commissionId: row.commission_id,
+    senderRole: row.sender_role,
+    senderName: row.sender_role === 'artist' ? 'Meru Art' : 'You',
+    body: row.body,
+    attachmentUrl: row.attachment_url ?? undefined,
+    attachmentKind: (row.attachment_kind as AttachmentKind) ?? undefined,
+    createdAt: row.created_at,
+  };
+}
+
+export function mapPaymentRow(row: PaymentRow): PaymentRecord {
+  return {
+    id: row.id,
+    commissionId: row.commission_id,
+    kind: row.kind,
+    amount: Number(row.amount),
+    currency: row.currency,
+    receiptPath: row.receipt_path ?? undefined,
+    status: row.status,
+    verifiedBy: row.verified_by ?? undefined,
+    verifiedAt: row.verified_at ?? undefined,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+export function mapCommissionRowToSubmitted(
+  row: CommissionRow,
+  wips: WipUploadItem[] = [],
+  messages: OrderMessage[] = [],
+): SubmittedOrder {
+  return {
+    id: row.id,
+    orderCode: row.order_code || row.id.slice(0, 8).toUpperCase(),
     createdAt: row.created_at,
     tier: row.tier,
     characterCount: row.character_count,
@@ -118,7 +212,12 @@ export function mapCommissionRowToSubmitted(row: CommissionRow): SubmittedOrder 
     poseAndVibe: row.pose_and_vibe,
     backgroundNotes: row.background_notes,
     clientContact: row.client_handle,
-    references: [],
+    references: (row.reference_urls || []).map((url, i) => ({
+      id: `ref-${i}`,
+      name: `Reference #${i + 1}`,
+      sizeBytes: 0,
+      previewUrl: url,
+    })),
     tosAccepted: Boolean(row.tos_accepted_at),
     tosAcceptedAt: row.tos_accepted_at,
     totalUsd: Number(row.total_price),
@@ -128,14 +227,15 @@ export function mapCommissionRowToSubmitted(row: CommissionRow): SubmittedOrder 
     sketchApproved: row.status_stage === 'lineart_coloring' || row.status_stage === 'completed',
     stage: row.status_stage,
     progress: row.progress ?? 10,
+    startDate: row.start_date ?? undefined,
     estEndDate: row.est_end_date ?? undefined,
-    authMethod: 'discord',
-    wips: [],
-    messages: [],
+    authMethod: 'google',
+    wips: row.wips ? row.wips.map(mapWipRow) : wips,
+    messages: row.messages ? row.messages.map(mapMessageRow) : messages,
   };
 }
 
-/** Fetch live studio settings + anonymised public queue from Supabase when configured. */
+/** Fetch live studio settings + anonymised public queue from Supabase. */
 export async function fetchPublicStudioData(): Promise<{
   settings: StudioSettingsRow | null;
   queue: PublicQueueSlot[] | null;
@@ -153,8 +253,8 @@ export async function fetchPublicStudioData(): Promise<{
   };
 }
 
-/** Trigger 1-click Discord or Google OAuth login via Supabase Auth. */
-export async function signInWithOAuthProvider(provider: 'discord' | 'google') {
+/** Trigger OAuth login via Google or Discord. */
+export async function signInWithOAuthProvider(provider: 'google' | 'discord') {
   if (!supabase) {
     return { redirected: false, error: null };
   }
@@ -172,11 +272,60 @@ export async function signInWithOAuthProvider(provider: 'discord' | 'google') {
   return { redirected: !error, error: error?.message ?? null };
 }
 
+/** Fetch commissions for the authenticated client. */
+export async function fetchMyCommissions(userId: string): Promise<SubmittedOrder[]> {
+  if (!supabase) return [];
+
+  const { data, error } = await supabase
+    .from('commissions')
+    .select(`
+      *,
+      wips:wip_uploads(*),
+      messages:messages(*)
+    `)
+    .eq('client_id', userId)
+    .order('created_at', { ascending: false });
+
+  if (error || !data) return [];
+
+  return (data as CommissionRow[]).map((row) =>
+    mapCommissionRowToSubmitted(
+      row,
+      (row.wips ?? []).map(mapWipRow),
+      (row.messages ?? []).map(mapMessageRow),
+    ),
+  );
+}
+
+/** Fetch all commissions for the artist admin. */
+export async function fetchAllCommissionsAdmin(): Promise<SubmittedOrder[]> {
+  if (!supabase) return [];
+
+  const { data, error } = await supabase
+    .from('commissions')
+    .select(`
+      *,
+      wips:wip_uploads(*),
+      messages:messages(*)
+    `)
+    .order('created_at', { ascending: false });
+
+  if (error || !data) return [];
+
+  return (data as CommissionRow[]).map((row) =>
+    mapCommissionRowToSubmitted(
+      row,
+      (row.wips ?? []).map(mapWipRow),
+      (row.messages ?? []).map(mapMessageRow),
+    ),
+  );
+}
+
 /** Insert a new commission into Supabase (enforces RLS + 1-pending-request-per-user rule). */
 export async function insertCommissionInSupabase(
   user: User,
   draft: OrderDraft,
-  pricing: { totalUsd: number; depositUsd: number },
+  pricing?: { totalUsd: number; depositUsd: number },
 ): Promise<{ order: SubmittedOrder | null; error: string | null }> {
   if (!supabase) return { order: null, error: 'Supabase not configured' };
 
@@ -194,8 +343,8 @@ export async function insertCommissionInSupabase(
     addons: draft.addons,
     currency: draft.currency,
     payment_split: draft.paymentSplit,
-    total_price: pricing.totalUsd,
-    deposit_due: pricing.depositUsd,
+    total_price: pricing?.totalUsd ?? 0,
+    deposit_due: pricing?.depositUsd ?? 0,
     status_stage: 'pending_review' as const,
     character_name: draft.characterName.trim(),
     pose_and_vibe: draft.poseAndVibe.trim(),
@@ -207,16 +356,170 @@ export async function insertCommissionInSupabase(
   const { data, error } = await supabase.from('commissions').insert(payload).select('*').single();
 
   if (error) {
-    // Postgres unique violation code 23505 -> idx_commissions_one_pending_per_client
     if (error.code === '23505') {
       return {
         order: null,
         error:
-          'You already have a request in Pending Review. To prevent spam, please wait until Meru reviews your active request before submitting another.',
+          'You already have an active request in Pending Review. Please wait until Meru reviews your pending brief before submitting another.',
       };
     }
     return { order: null, error: error.message };
   }
 
   return { order: mapCommissionRowToSubmitted(data as CommissionRow), error: null };
+}
+
+/** Update commission status stage in Supabase (Admin action). */
+export async function updateCommissionStageInDb(
+  commissionId: string,
+  stage: CommissionStage,
+  progress?: number,
+): Promise<{ success: boolean; error: string | null }> {
+  if (!supabase) return { success: false, error: 'Supabase not connected' };
+
+  const updates: Record<string, unknown> = { status_stage: stage };
+  if (progress !== undefined) updates.progress = progress;
+  if (stage === 'lineart_coloring' || stage === 'completed') {
+    updates.final_paid = true;
+    updates.deposit_paid = true;
+  } else if (stage !== 'pending_review' && stage !== 'awaiting_deposit') {
+    updates.deposit_paid = true;
+  }
+
+  const { error } = await supabase.from('commissions').update(updates).eq('id', commissionId);
+  return { success: !error, error: error?.message ?? null };
+}
+
+/** Decline a commission in Supabase (Admin action). */
+export async function declineCommissionInDb(
+  commissionId: string,
+): Promise<{ success: boolean; error: string | null }> {
+  if (!supabase) return { success: false, error: 'Supabase not connected' };
+
+  const { error } = await supabase
+    .from('commissions')
+    .update({ status_stage: 'declined' })
+    .eq('id', commissionId);
+
+  return { success: !error, error: error?.message ?? null };
+}
+
+/** Toggle payment verified flag in Supabase and reconcile payments audit trail (Admin action). */
+export async function toggleCommissionPaymentInDb(
+  commissionId: string,
+  field: 'deposit_paid' | 'final_paid',
+  value: boolean,
+  currentStage?: CommissionStage,
+): Promise<{ success: boolean; error: string | null }> {
+  if (!supabase) return { success: false, error: 'Supabase not connected' };
+
+  const updates: Record<string, unknown> = { [field]: value };
+  if (field === 'deposit_paid' && value && currentStage === 'awaiting_deposit') {
+    updates.status_stage = 'sketching';
+    updates.progress = 42;
+  } else if (field === 'final_paid' && value && currentStage === 'sketch_approval') {
+    updates.status_stage = 'lineart_coloring';
+    updates.progress = 85;
+  }
+
+  // 1. Update commission row
+  const { error: commError } = await supabase.from('commissions').update(updates).eq('id', commissionId);
+  if (commError) return { success: false, error: commError.message };
+
+  // 2. Reconcile payments audit record if verifying
+  if (value) {
+    const paymentKind = field === 'deposit_paid' ? 'deposit' : 'final';
+    await supabase
+      .from('payments')
+      .update({ status: 'verified', updated_at: new Date().toISOString() })
+      .eq('commission_id', commissionId)
+      .eq('kind', paymentKind)
+      .eq('status', 'submitted');
+  }
+
+  return { success: true, error: null };
+}
+
+/** Update commission scheduling dates in Supabase (Admin action). */
+export async function updateCommissionScheduleInDb(
+  commissionId: string,
+  startDate: string,
+  estEndDate: string,
+): Promise<{ success: boolean; error: string | null }> {
+  if (!supabase) return { success: false, error: 'Supabase not connected' };
+
+  const { error } = await supabase
+    .from('commissions')
+    .update({ start_date: startDate, est_end_date: estEndDate })
+    .eq('id', commissionId);
+
+  return { success: !error, error: error?.message ?? null };
+}
+
+/** Send message in realtime order chat. */
+export async function sendCommissionMessageInDb(
+  commissionId: string,
+  body: string,
+  opts?: { attachmentUrl?: string; attachmentKind?: AttachmentKind },
+): Promise<{ message: OrderMessage | null; error: string | null }> {
+  if (!supabase) return { message: null, error: 'Supabase not connected' };
+
+  const user = (await supabase.auth.getUser()).data.user;
+  if (!user) return { message: null, error: 'User must be signed in' };
+
+  const { data, error } = await supabase
+    .from('messages')
+    .insert({
+      commission_id: commissionId,
+      sender_id: user.id,
+      body,
+      attachment_url: opts?.attachmentUrl,
+      attachment_kind: opts?.attachmentKind,
+    })
+    .select('*')
+    .single();
+
+  if (error || !data) return { message: null, error: error?.message ?? 'Failed to send message' };
+  return { message: mapMessageRow(data as MessageRow), error: null };
+}
+
+/** Record client payment submission in payments table. */
+export async function submitPaymentReceiptInDb(
+  commissionId: string,
+  kind: 'deposit' | 'final' | 'full',
+  amount: number,
+  currency: Currency,
+  receiptPath?: string,
+): Promise<{ payment: PaymentRecord | null; error: string | null }> {
+  if (!supabase) return { payment: null, error: 'Supabase not connected' };
+
+  const { data, error } = await supabase
+    .from('payments')
+    .insert({
+      commission_id: commissionId,
+      kind,
+      amount,
+      currency,
+      receipt_path: receiptPath,
+      status: 'submitted',
+    })
+    .select('*')
+    .single();
+
+  if (error || !data) return { payment: null, error: error?.message ?? 'Failed to record payment' };
+  return { payment: mapPaymentRow(data as PaymentRow), error: null };
+}
+
+/** Update studio settings row (Admin action). */
+export async function updateStudioSettingsInDb(
+  patch: Partial<StudioSettingsRow>,
+): Promise<{ success: boolean; error: string | null }> {
+  if (!supabase) return { success: false, error: 'Supabase not connected' };
+
+  const { error } = await supabase
+    .from('studio_settings')
+    .update({ ...patch, updated_at: new Date().toISOString() })
+    .eq('id', 1);
+
+  return { success: !error, error: error?.message ?? null };
 }

@@ -9,6 +9,7 @@ import {
   type ReactNode,
 } from 'react';
 import type { User } from '@supabase/supabase-js';
+import { useQueryClient } from '@tanstack/react-query';
 import type {
   AttachmentKind,
   CommissionStage,
@@ -26,21 +27,30 @@ import type {
 import { BLOCKED_RANGES, INITIAL_PUBLIC_QUEUE, STUDIO_AVAILABILITY } from '@/data/schedule';
 import { DEMO_SHOWCASE_ORDER, STAGE_STEPS } from '@/data/orders';
 import { ADDON_RATES, TIERS } from '@/data/artist';
-import { TIER_ACCENT } from '@/lib/utils';
 import {
   artistAdminUid,
-  fetchPublicStudioData,
   insertCommissionInSupabase,
   isSupabaseConfigured,
   signInWithOAuthProvider,
+  submitPaymentReceiptInDb,
   supabase,
 } from '@/lib/supabase';
-import { scrollToTarget } from '@/lib/smoothScroll';
+import {
+  QUERY_KEYS,
+  useCommissionsQuery,
+  usePublicStudioDataQuery,
+  useUpdateCommissionStageMutation,
+  useDeclineCommissionMutation,
+  useTogglePaymentFlagMutation,
+  useUpdateScheduleMutation,
+  useSendMessageMutation,
+  useUpdateStudioSettingsMutation,
+} from '@/lib/queries';
 
 const TAB_IDS: TabId[] = ['portfolio', 'rules', 'schedule', 'track', 'admin'];
 const DRAFT_KEY = 'meru-order-draft-v1';
-const ORDERS_KEY = 'meru-submitted-orders-v2';
 const SETTINGS_KEY = 'meru-studio-settings-v1';
+const LOCAL_ORDERS_KEY = 'meru-local-demo-orders-v1';
 
 interface Toast {
   id: number;
@@ -114,7 +124,6 @@ function loadSavedDraft(): OrderDraft {
     return {
       ...DEFAULT_DRAFT,
       ...parsed,
-      addons: { ...DEFAULT_DRAFT.addons, ...(parsed.addons ?? {}) },
       references: [],
     };
   } catch {
@@ -122,14 +131,13 @@ function loadSavedDraft(): OrderDraft {
   }
 }
 
-function loadSubmittedOrders(): SubmittedOrder[] {
+function loadLocalOrders(): SubmittedOrder[] {
   try {
-    const raw = localStorage.getItem(ORDERS_KEY);
-    if (!raw) return [DEMO_SHOWCASE_ORDER];
-    const parsed = JSON.parse(raw) as SubmittedOrder[];
-    return parsed.length > 0 ? parsed : [DEMO_SHOWCASE_ORDER];
+    const raw = localStorage.getItem(LOCAL_ORDERS_KEY);
+    if (!raw) return [];
+    return JSON.parse(raw) as SubmittedOrder[];
   } catch {
-    return [DEMO_SHOWCASE_ORDER];
+    return [];
   }
 }
 
@@ -140,7 +148,7 @@ export function calculateOrderPricing(draft: OrderDraft, settings: StudioSetting
   if (draft.addons.softFurry) mult += settings.multipliers.softFurry;
   if (draft.addons.commercial) mult += settings.multipliers.commercial;
 
-  const subtotal = baseUsd * draft.characterCount;
+  const subtotal = baseUsd * Math.max(1, Math.min(4, draft.characterCount || 1));
   const totalUsd = Math.round(subtotal * mult);
   const depositUsd = draft.paymentSplit === '100_upfront' ? totalUsd : Math.ceil(totalUsd / 2);
   const remainingUsd = totalUsd - depositUsd;
@@ -170,7 +178,6 @@ interface StudioState {
   draft: OrderDraft;
   updateDraft: (patch: Partial<OrderDraft>) => void;
   resetDraft: () => void;
-  /** Dynamic studio settings (editable live in Phase 5 Admin Dev Mode). */
   studioSettings: StudioSettingsState;
   tiers: Tier[];
   updateStudioSettings: (patch: Partial<StudioSettingsState>) => void;
@@ -183,11 +190,12 @@ interface StudioState {
   activeOrderId: string;
   setActiveOrderId: (id: string) => void;
   hasPendingOrder: boolean;
+  isLoadingOrders: boolean;
+  isDemoMode: boolean;
   submitOrder: (authMethod: SubmittedOrder['authMethod']) => Promise<{
     order: SubmittedOrder | null;
     error: string | null;
   }>;
-  /** Phase 4 & 5 Order / Payment / WIP Controller actions */
   setOrderStage: (orderId: string, stage: CommissionStage) => void;
   declineOrder: (orderId: string) => void;
   toggleOrderPaymentFlag: (orderId: string, field: 'depositPaid' | 'finalPaid') => void;
@@ -209,6 +217,7 @@ interface StudioState {
   setDevAdminPreview: (enabled: boolean) => void;
   supabaseLive: boolean;
   signOut: () => Promise<void>;
+  signInWithGoogle: () => Promise<void>;
   lightbox: LightboxState | null;
   openLightbox: (ids: string[], index: number) => void;
   setLightboxIndex: (index: number) => void;
@@ -218,15 +227,15 @@ interface StudioState {
   dismissToast: () => void;
 }
 
-const StudioContext = createContext<StudioState | null>(null);
+const StudioContext = createContext<StudioState | undefined>(undefined);
 
 function readHashTab(): TabId {
-  const hash = window.location.hash.replace('#', '') as TabId;
+  const hash = (typeof window !== 'undefined' ? window.location.hash.replace(/^#/, '') : '') as TabId;
   return TAB_IDS.includes(hash) ? hash : 'portfolio';
 }
 
 const TIER_SAMPLE_SLUG: Record<TierId, string> = {
-  headshot: 'deku-inktober',
+  headshot: 'kitsunegem',
   halfbody: 'velimer-dnd',
   fullbody: 'kitsunegem',
   chibi: 'chibi-universe',
@@ -234,6 +243,8 @@ const TIER_SAMPLE_SLUG: Record<TierId, string> = {
 };
 
 export function StudioProvider({ children }: { children: ReactNode }) {
+  const queryClient = useQueryClient();
+
   const [activeTab, setActiveTabState] = useState<TabId>(readHashTab);
   const [galleryFilter, setGalleryFilter] = useState<GalleryFilter>('all');
   const [studioSettings, setStudioSettings] = useState<StudioSettingsState>(loadStudioSettings);
@@ -241,9 +252,10 @@ export function StudioProvider({ children }: { children: ReactNode }) {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [drawerStep, setDrawerStep] = useState<DrawerStep>(1);
   const [baseQueueSlots, setBaseQueueSlots] = useState<PublicQueueSlot[]>(INITIAL_PUBLIC_QUEUE);
-  const [submittedOrders, setSubmittedOrders] = useState<SubmittedOrder[]>(loadSubmittedOrders);
-  const [activeOrderId, setActiveOrderId] = useState<string>(() => loadSubmittedOrders()[0]?.id ?? DEMO_SHOWCASE_ORDER.id);
+  const [localOrders, setLocalOrders] = useState<SubmittedOrder[]>(loadLocalOrders);
+  const [activeOrderId, setActiveOrderId] = useState<string>('');
   const [user, setUser] = useState<User | null>(null);
+
   const [devAdminPreview, setDevAdminPreview] = useState<boolean>(() => {
     if (import.meta.env.DEV && typeof window !== 'undefined') {
       const params = new URLSearchParams(window.location.search);
@@ -251,17 +263,19 @@ export function StudioProvider({ children }: { children: ReactNode }) {
     }
     return false;
   });
+
   const [lightbox, setLightbox] = useState<LightboxState | null>(null);
   const [toast, setToast] = useState<Toast | null>(null);
   const toastTimer = useRef<number | undefined>(undefined);
 
+  // Hash-based tab navigation
   useEffect(() => {
     const onHash = () => setActiveTabState(readHashTab());
     window.addEventListener('hashchange', onHash);
     return () => window.removeEventListener('hashchange', onHash);
   }, []);
 
-  // Hydrate Supabase Auth session + public studio data when configured
+  // Hydrate Supabase Auth session
   useEffect(() => {
     if (!supabase) return;
 
@@ -269,48 +283,154 @@ export function StudioProvider({ children }: { children: ReactNode }) {
       setUser(data.session?.user ?? null);
     });
 
-    const { data: sub } = supabase.auth.onAuthStateChange((event, session) => {
-      const nextUser = session?.user ?? null;
-      setUser(nextUser);
-
-      // If the user just returned from Google/Discord OAuth login, auto-complete their pending submission & open Track Order
-      if (nextUser && (event === 'SIGNED_IN' || sessionStorage.getItem('meru-oauth-return'))) {
-        const cameFromOAuth = Boolean(sessionStorage.getItem('meru-oauth-return'));
-        if (cameFromOAuth) {
-          sessionStorage.removeItem('meru-oauth-return');
-          const displayName =
-            (nextUser.user_metadata?.full_name as string | undefined) ||
-            nextUser.email?.split('@')[0] ||
-            'Account';
-          window.history.replaceState(null, '', '#track');
-          setActiveTabState('track');
-          setToast({
-            id: Date.now(),
-            message: `Signed in as ${displayName}! Welcome to your commission workspace.`,
-          });
-        }
-      }
-    });
-
-    fetchPublicStudioData().then(({ settings, queue }) => {
-      if (settings) {
-        setStudioSettings((prev) => ({
-          ...prev,
-          status: settings.availability_status ?? prev.status,
-          maxSlots: settings.max_slots ?? prev.maxSlots,
-          usdToPhpRate: Number(settings.usd_to_php_rate ?? prev.usdToPhpRate),
-          basePrices: { ...prev.basePrices, ...(settings.base_prices_json ?? {}) },
-          multipliers: { ...prev.multipliers, ...(settings.multipliers_json ?? {}) },
-          blockedRanges: settings.blocked_dates ?? prev.blockedRanges,
-        }));
-      }
-      if (queue && queue.length > 0) setBaseQueueSlots(queue);
+    const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
+      setUser(session?.user ?? null);
     });
 
     return () => sub.subscription.unsubscribe();
   }, []);
 
-  // Persist studio settings
+  const isDemoMode = useMemo(() => {
+    if (typeof window !== 'undefined') {
+      return new URLSearchParams(window.location.search).get('demo') === '1';
+    }
+    return false;
+  }, []);
+
+  const isArtistAdmin = useMemo(
+    () =>
+      Boolean(
+        devAdminPreview ||
+          (user &&
+            ((user.app_metadata as { role?: string } | undefined)?.role === 'artist' ||
+              (artistAdminUid && user.id === artistAdminUid))),
+      ),
+    [devAdminPreview, user],
+  );
+
+  // React Query: Commissions & Studio Data
+  const { data: dbOrders, isLoading: isLoadingOrders } = useCommissionsQuery(user, isArtistAdmin);
+  const { data: studioData } = usePublicStudioDataQuery();
+
+  // Sync public studio settings when query resolves
+  useEffect(() => {
+    if (studioData?.settings) {
+      const s = studioData.settings;
+      setStudioSettings((prev) => ({
+        ...prev,
+        status: s.availability_status ?? prev.status,
+        maxSlots: s.max_slots ?? prev.maxSlots,
+        usdToPhpRate: Number(s.usd_to_php_rate ?? prev.usdToPhpRate),
+        basePrices: { ...prev.basePrices, ...(s.base_prices_json ?? {}) },
+        multipliers: { ...prev.multipliers, ...(s.multipliers_json ?? {}) },
+        blockedRanges: s.blocked_dates ?? prev.blockedRanges,
+      }));
+    }
+    if (studioData?.queue && studioData.queue.length > 0) {
+      setBaseQueueSlots(studioData.queue);
+    }
+  }, [studioData]);
+
+  // Derived submittedOrders from Supabase + demo mode split
+  const submittedOrders = useMemo<SubmittedOrder[]>(() => {
+    if (user || isArtistAdmin) {
+      const orders = dbOrders ?? [];
+      if (orders.length > 0) {
+        return isDemoMode ? [...orders, DEMO_SHOWCASE_ORDER] : orders;
+      }
+      return isDemoMode ? [DEMO_SHOWCASE_ORDER, ...localOrders] : localOrders;
+    }
+    // Logged out
+    return isDemoMode ? [DEMO_SHOWCASE_ORDER, ...localOrders] : [];
+  }, [user, isArtistAdmin, dbOrders, isDemoMode, localOrders]);
+
+  // Keep activeOrderId pointed at a valid order
+  useEffect(() => {
+    if (submittedOrders.length > 0) {
+      if (!activeOrderId || !submittedOrders.some((o) => o.id === activeOrderId)) {
+        setActiveOrderId(submittedOrders[0].id);
+      }
+    } else {
+      setActiveOrderId('');
+    }
+  }, [submittedOrders, activeOrderId]);
+
+  // React Query Mutation Hooks
+  const updateStageMut = useUpdateCommissionStageMutation();
+  const declineMut = useDeclineCommissionMutation();
+  const togglePaymentMut = useTogglePaymentFlagMutation();
+  const updateScheduleMut = useUpdateScheduleMutation();
+  const sendMessageMut = useSendMessageMutation();
+  const updateSettingsMut = useUpdateStudioSettingsMutation();
+
+  const showToast = useCallback((message: string) => {
+    if (toastTimer.current) window.clearTimeout(toastTimer.current);
+    setToast({ id: Date.now(), message });
+    toastTimer.current = window.setTimeout(() => setToast(null), 4500);
+  }, []);
+
+  const dismissToast = useCallback(() => setToast(null), []);
+
+  const resetDraft = useCallback(() => {
+    setDraft(DEFAULT_DRAFT);
+    try {
+      localStorage.removeItem(DRAFT_KEY);
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  const isResumingOAuthRef = useRef(false);
+
+  // Resume OAuth Submission when returning from Google redirect
+  useEffect(() => {
+    if (!supabase || !user || isResumingOAuthRef.current) return;
+    const cameFromOAuth = sessionStorage.getItem('meru-oauth-return');
+    const pendingDraftRaw = sessionStorage.getItem('meru_pending_draft');
+
+    if (cameFromOAuth && pendingDraftRaw) {
+      isResumingOAuthRef.current = true;
+      sessionStorage.removeItem('meru-oauth-return'); // Consume trigger flag
+
+      try {
+        const parsedDraft = JSON.parse(pendingDraftRaw) as OrderDraft;
+        const pricing = calculateOrderPricing(parsedDraft, studioSettings);
+
+        insertCommissionInSupabase(user, parsedDraft, pricing)
+          .then((res) => {
+            if (res.order) {
+              sessionStorage.removeItem('meru_pending_draft'); // Only clear on confirmed success
+              queryClient.invalidateQueries({ queryKey: ['commissions'] });
+              queryClient.invalidateQueries({ queryKey: ['publicStudioData'] });
+              setActiveOrderId(res.order.id);
+              resetDraft();
+              window.history.replaceState(null, '', '#track');
+              setActiveTabState('track');
+              showToast(
+                `Brief #${res.order.orderCode || res.order.id} submitted to Meru! Welcome to your order room.`,
+              );
+            } else if (res.error) {
+              isResumingOAuthRef.current = false;
+              // Restore draft into active form state so brief data is never lost
+              setDraft(parsedDraft);
+              showToast(res.error);
+            }
+          })
+          .catch((err) => {
+            isResumingOAuthRef.current = false;
+            setDraft(parsedDraft);
+            showToast('Network error while submitting your brief. Please try again.');
+            console.error('Failed to insert OAuth commission:', err);
+          });
+      } catch (err) {
+        sessionStorage.removeItem('meru_pending_draft');
+        isResumingOAuthRef.current = false;
+        console.error('Failed to parse pending OAuth brief:', err);
+      }
+    }
+  }, [user, studioSettings, resetDraft, queryClient, showToast]);
+
+  // Persist studio settings locally as fallback
   useEffect(() => {
     try {
       localStorage.setItem(SETTINGS_KEY, JSON.stringify(studioSettings));
@@ -338,130 +458,100 @@ export function StudioProvider({ children }: { children: ReactNode }) {
     [studioSettings.basePrices],
   );
 
-  // Merge active approved orders into the public queue view so approving a brief in Admin Mode updates the public calendar!
   const queueSlots = useMemo<PublicQueueSlot[]>(() => {
-    const activeStages: CommissionStage[] = [
-      'awaiting_deposit',
-      'sketching',
-      'sketch_approval',
-      'lineart_coloring',
-    ];
-    const promotedFromOrders: PublicQueueSlot[] = submittedOrders
-      .filter((o) => o.id !== DEMO_SHOWCASE_ORDER.id && !o.declined && activeStages.includes(o.stage))
-      .map((o, i) => {
-        const rawHandle = (o.clientContact || o.characterName || 'client').trim();
-        const hint =
-          rawHandle.length <= 2
-            ? `${rawHandle[0] ?? 'c'}***`
-            : `${rawHandle[0]}***${rawHandle[rawHandle.length - 1]}`;
-        const stageInfo = STAGE_STEPS.find((s) => s.id === o.stage);
-        return {
-          slotNumber: baseQueueSlots.length + i + 1,
-          id: o.id,
-          handleHint: hint,
-          tier: o.tier,
-          stage: o.stage,
-          stageLabel: stageInfo?.shortLabel ?? 'In Progress',
-          progress: o.progress,
-          startDate: o.startDate ?? o.preferredStartDate ?? '2026-11-05',
-          estEndDate: o.estEndDate ?? '2026-11-19',
-          accent: TIER_ACCENT[o.tier],
-        };
-      });
-
-    return [...baseQueueSlots, ...promotedFromOrders].slice(0, studioSettings.maxSlots);
-  }, [baseQueueSlots, submittedOrders, studioSettings.maxSlots]);
-
-  const persistOrders = useCallback((updater: (prev: SubmittedOrder[]) => SubmittedOrder[]) => {
-    setSubmittedOrders((prev) => {
-      const next = updater(prev);
-      try {
-        const clean = next.map(({ references: _r, ...rest }) => ({ ...rest, references: [] }));
-        localStorage.setItem(ORDERS_KEY, JSON.stringify(clean));
-      } catch {
-        // ignore
-      }
-      return next;
-    });
-  }, []);
+    return baseQueueSlots;
+  }, [baseQueueSlots]);
 
   const setActiveTab = useCallback((tab: TabId) => {
-    if (window.location.hash !== `#${tab}`) window.history.pushState(null, '', `#${tab}`);
     setActiveTabState(tab);
-    scrollToTarget(0, 0);
+    window.location.hash = tab;
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   }, []);
 
-  const dismissToast = useCallback(() => setToast(null), []);
-
-  const showToast = useCallback((message: string) => {
-    window.clearTimeout(toastTimer.current);
-    setToast({ id: Date.now(), message });
-    toastTimer.current = window.setTimeout(() => setToast(null), 4000);
-  }, []);
-
-  const updateStudioSettings = useCallback((patch: Partial<StudioSettingsState>) => {
-    setStudioSettings((prev) => ({ ...prev, ...patch }));
-  }, []);
-
-  const resetStudioSettings = useCallback(() => {
-    setStudioSettings(DEFAULT_STUDIO_SETTINGS);
-    showToast('Studio prices, multipliers, and slots reset to defaults.');
-  }, [showToast]);
-
-  const toggleBlockedDate = useCallback((isoDate: string, reason = 'Artist Busy / Blocked Day') => {
-    setStudioSettings((prev) => {
-      const existing = prev.blockedRanges.find((b) => isoDate >= b.startDate && isoDate <= b.endDate);
-      if (existing) {
-        return {
-          ...prev,
-          blockedRanges: prev.blockedRanges.filter((b) => b.id !== existing.id),
-        };
-      }
-      return {
-        ...prev,
-        blockedRanges: [
-          ...prev.blockedRanges,
-          { id: `block-${Date.now()}`, startDate: isoDate, endDate: isoDate, reason },
-        ],
-      };
-    });
-  }, []);
-
-  const removeBlockedRange = useCallback((id: string) => {
-    setStudioSettings((prev) => ({
-      ...prev,
-      blockedRanges: prev.blockedRanges.filter((b) => b.id !== id),
-    }));
-  }, []);
-
-  const updateDraft = useCallback((patch: Partial<OrderDraft>) => {
-    setDraft((prev) => ({ ...prev, ...patch }));
-  }, []);
-
-  const resetDraft = useCallback(() => {
-    setDraft(DEFAULT_DRAFT);
-    setDrawerStep(1);
-  }, []);
-
-  const openDrawer = useCallback((opts?: { tier?: TierId; step?: DrawerStep; preferredDate?: string }) => {
-    if (opts?.tier || opts?.preferredDate !== undefined) {
-      setDraft((prev) => ({
-        ...prev,
-        ...(opts.tier ? { tier: opts.tier } : {}),
-        ...(opts.preferredDate !== undefined ? { preferredStartDate: opts.preferredDate } : {}),
-      }));
-    }
-    setDrawerStep(opts?.step ?? 1);
-    setDrawerOpen(true);
-  }, []);
+  const openDrawer = useCallback(
+    (opts?: { tier?: TierId; step?: DrawerStep; preferredDate?: string }) => {
+      if (opts?.tier) setDraft((d) => ({ ...d, tier: opts.tier! }));
+      if (opts?.preferredDate) setDraft((d) => ({ ...d, preferredStartDate: opts.preferredDate! }));
+      setDrawerStep(opts?.step ?? 1);
+      setDrawerOpen(true);
+    },
+    [],
+  );
 
   const closeDrawer = useCallback(() => setDrawerOpen(false), []);
 
-  const commissionTier = useCallback((tier: TierId) => {
-    setDraft((prev) => ({ ...prev, tier }));
-    setDrawerStep(1);
-    setDrawerOpen(true);
+  const updateDraft = useCallback((patch: Partial<OrderDraft>) => {
+    setDraft((d) => ({ ...d, ...patch }));
   }, []);
+
+  const commissionTier = useCallback(
+    (tier: TierId) => {
+      openDrawer({ tier, step: 2 });
+    },
+    [openDrawer],
+  );
+
+  const updateStudioSettings = useCallback(
+    (patch: Partial<StudioSettingsState>) => {
+      setStudioSettings((prev) => {
+        const next = { ...prev, ...patch };
+        if (isSupabaseConfigured && isArtistAdmin) {
+          updateSettingsMut.mutate({
+            availability_status: next.status,
+            max_slots: next.maxSlots,
+            usd_to_php_rate: next.usdToPhpRate,
+            base_prices_json: next.basePrices,
+            multipliers_json: next.multipliers,
+            blocked_dates: next.blockedRanges,
+          });
+        }
+        return next;
+      });
+      showToast('Studio settings saved.');
+    },
+    [isArtistAdmin, showToast, updateSettingsMut],
+  );
+
+  const resetStudioSettings = useCallback(() => {
+    setStudioSettings(DEFAULT_STUDIO_SETTINGS);
+    showToast('Studio settings reset to defaults.');
+  }, [showToast]);
+
+  const toggleBlockedDate = useCallback(
+    (isoDate: string, reason = 'Studio Busy / Unavailable') => {
+      setStudioSettings((prev) => {
+        const exists = prev.blockedRanges.find((b) => b.startDate === isoDate && b.endDate === isoDate);
+        let nextRanges: typeof prev.blockedRanges;
+        if (exists) {
+          nextRanges = prev.blockedRanges.filter((b) => b.id !== exists.id);
+          showToast(`Unblocked ${isoDate}`);
+        } else {
+          const newBlock = { id: `block-${Date.now()}`, startDate: isoDate, endDate: isoDate, reason };
+          nextRanges = [...prev.blockedRanges, newBlock];
+          showToast(`Blocked ${isoDate}: ${reason}`);
+        }
+        if (isSupabaseConfigured && isArtistAdmin) {
+          updateSettingsMut.mutate({ blocked_dates: nextRanges });
+        }
+        return { ...prev, blockedRanges: nextRanges };
+      });
+    },
+    [isArtistAdmin, showToast, updateSettingsMut],
+  );
+
+  const removeBlockedRange = useCallback(
+    (id: string) => {
+      setStudioSettings((prev) => {
+        const nextRanges = prev.blockedRanges.filter((b) => b.id !== id);
+        if (isSupabaseConfigured && isArtistAdmin) {
+          updateSettingsMut.mutate({ blocked_dates: nextRanges });
+        }
+        return { ...prev, blockedRanges: nextRanges };
+      });
+      showToast('Removed blocked date range.');
+    },
+    [isArtistAdmin, showToast, updateSettingsMut],
+  );
 
   const hasPendingOrder = useMemo(
     () => submittedOrders.some((o) => !o.declined && o.stage === 'pending_review'),
@@ -476,93 +566,47 @@ export function StudioProvider({ children }: { children: ReactNode }) {
         return {
           order: null,
           error:
-            'Scam & Spam Protection: You already have 1 request in Pending Review. Please wait for Meru to review your active request (or approve it in Admin Dev Mode).',
+            'You already have an active brief in Pending Review. Please wait until Meru reviews your request before submitting another.',
         };
       }
 
-      const { totalUsd, depositUsd } = calculateOrderPricing(draft, studioSettings);
+      const pricing = calculateOrderPricing(draft, studioSettings);
 
       if (supabase && authMethod !== 'demo') {
         if (!user) {
-          // Save a local copy of their brief right before redirecting to Google/Discord so it is ready in Track Order on return!
-          const oauthId = `MRU-${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
-          const sampleSlug = TIER_SAMPLE_SLUG[draft.tier];
-          const nowIso = new Date().toISOString();
-          const tierLabel = tiers.find((t) => t.id === draft.tier)?.label ?? draft.tier;
-          const pendingOrder: SubmittedOrder = {
-            ...draft,
-            id: oauthId,
-            createdAt: nowIso,
-            totalUsd,
-            depositUsd,
-            depositPaid: false,
-            finalPaid: false,
-            sketchApproved: false,
-            stage: 'pending_review',
-            progress: 10,
-            startDate: draft.preferredStartDate ?? '2026-11-05',
-            estEndDate: '2026-11-19',
-            authMethod,
-            wips: [
-              {
-                id: `${oauthId}-wip-1`,
-                commissionId: oauthId,
-                stage: 'sketch_approval',
-                title: `WIP #1 · ${tierLabel} Composition & Pose Sketch`,
-                slug: sampleSlug,
-                isFinal: false,
-                artistNote: 'Initial pose & expression check! Watermarked during progress.',
-                approvedByClient: false,
-                createdAt: nowIso,
-              },
-              {
-                id: `${oauthId}-wip-final`,
-                commissionId: oauthId,
-                stage: 'completed',
-                title: `Final · High-Res ${tierLabel} PNG`,
-                slug: sampleSlug,
-                isFinal: true,
-                artistNote: 'Full-resolution unwatermarked master file.',
-                approvedByClient: false,
-                createdAt: nowIso,
-              },
-            ],
-            messages: [
-              {
-                id: `${oauthId}-m1`,
-                commissionId: oauthId,
-                senderRole: 'artist',
-                senderName: 'Meru Art (Auto-Bot)',
-                body: `Thanks for signing in with ${authMethod.toUpperCase()} and submitting your ${tierLabel} brief! Your request is in Pending Review.`,
-                createdAt: nowIso,
-              },
-            ],
-          };
-          persistOrders((prev) => [pendingOrder, ...prev]);
-          setActiveOrderId(pendingOrder.id);
-
-          const { error } = await signInWithOAuthProvider(authMethod);
+          sessionStorage.setItem('meru_pending_draft', JSON.stringify(draft));
+          sessionStorage.setItem('meru-oauth-return', '1');
+          const { error } = await signInWithOAuthProvider(authMethod === 'discord' ? 'discord' : 'google');
+          if (error) {
+            sessionStorage.removeItem('meru_pending_draft');
+            sessionStorage.removeItem('meru-oauth-return');
+          }
           return { order: null, error: error ?? 'Redirecting to sign in...' };
         }
-        const res = await insertCommissionInSupabase(user, draft, { totalUsd, depositUsd });
+
+        const res = await insertCommissionInSupabase(user, draft, pricing);
         if (res.order) {
-          persistOrders((prev) => [res.order!, ...prev]);
+          queryClient.invalidateQueries({ queryKey: ['commissions'] });
+          queryClient.invalidateQueries({ queryKey: ['publicStudioData'] });
           setActiveOrderId(res.order.id);
+          resetDraft();
         }
         return res;
       }
 
-      const id = `MRU-${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
+      // Offline demo submission
+      const demoId = `MRU-${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
       const sampleSlug = TIER_SAMPLE_SLUG[draft.tier];
       const nowIso = new Date().toISOString();
       const tierLabel = tiers.find((t) => t.id === draft.tier)?.label ?? draft.tier;
 
       const order: SubmittedOrder = {
         ...draft,
-        id,
+        id: demoId,
+        orderCode: demoId,
         createdAt: nowIso,
-        totalUsd,
-        depositUsd,
+        totalUsd: pricing.totalUsd,
+        depositUsd: pricing.depositUsd,
         depositPaid: false,
         finalPaid: false,
         sketchApproved: false,
@@ -570,11 +614,11 @@ export function StudioProvider({ children }: { children: ReactNode }) {
         progress: 10,
         startDate: draft.preferredStartDate ?? '2026-11-05',
         estEndDate: '2026-11-19',
-        authMethod,
+        authMethod: 'demo',
         wips: [
           {
-            id: `${id}-wip-1`,
-            commissionId: id,
+            id: `${demoId}-wip-1`,
+            commissionId: demoId,
             stage: 'sketch_approval',
             title: `WIP #1 · ${tierLabel} Composition & Pose Sketch`,
             slug: sampleSlug,
@@ -583,99 +627,116 @@ export function StudioProvider({ children }: { children: ReactNode }) {
             approvedByClient: false,
             createdAt: nowIso,
           },
-          {
-            id: `${id}-wip-final`,
-            commissionId: id,
-            stage: 'completed',
-            title: `Final · High-Res ${tierLabel} PNG`,
-            slug: sampleSlug,
-            isFinal: true,
-            artistNote: 'Full-resolution unwatermarked master file.',
-            approvedByClient: false,
-            createdAt: nowIso,
-          },
         ],
         messages: [
           {
-            id: `${id}-m1`,
-            commissionId: id,
+            id: `${demoId}-m1`,
+            commissionId: demoId,
             senderRole: 'artist',
-            senderName: 'Meru Art (Auto-Bot)',
-            body: `Thanks for submitting your ${tierLabel} brief! Your request is in Pending Review. Once approved, you’ll be prompted here to upload your ${draft.paymentSplit === '50_50' ? '50%' : '100%'} deposit receipt.`,
+            senderName: 'Meru Art',
+            body: `Thanks for submitting your ${tierLabel} brief! Your request is in Pending Review.`,
             createdAt: nowIso,
           },
         ],
       };
 
-      persistOrders((prev) => [order, ...prev]);
+      setLocalOrders((prev) => {
+        const next = [order, ...prev];
+        try {
+          localStorage.setItem(LOCAL_ORDERS_KEY, JSON.stringify(next));
+        } catch {
+          // ignore
+        }
+        return next;
+      });
       setActiveOrderId(order.id);
       return { order, error: null };
     },
-    [draft, hasPendingOrder, persistOrders, studioSettings, tiers, user],
+    [draft, hasPendingOrder, queryClient, resetDraft, studioSettings, tiers, user],
   );
 
   const setOrderStage = useCallback(
     (orderId: string, stage: CommissionStage) => {
       const meta = STAGE_STEPS.find((s) => s.id === stage);
-      persistOrders((prev) =>
-        prev.map((o) => {
-          if (o.id !== orderId) return o;
-          return {
-            ...o,
-            declined: false,
-            stage,
-            progress: meta?.progress ?? o.progress,
-            depositPaid: stage !== 'pending_review' && stage !== 'awaiting_deposit' ? true : o.depositPaid,
-            finalPaid: stage === 'lineart_coloring' || stage === 'completed' ? true : o.finalPaid,
-            sketchApproved: stage === 'lineart_coloring' || stage === 'completed' ? true : o.sketchApproved,
-          };
-        }),
-      );
+      const progress = meta?.progress;
+
+      if (isSupabaseConfigured && orderId !== DEMO_SHOWCASE_ORDER.id) {
+        updateStageMut.mutate(
+          { commissionId: orderId, stage, progress },
+          {
+            onSuccess: () => showToast(`Order stage updated to ${stage}.`),
+            onError: (err) => showToast(err.message),
+          },
+        );
+      } else {
+        setLocalOrders((prev) =>
+          prev.map((o) => (o.id === orderId ? { ...o, stage, progress: progress ?? o.progress } : o)),
+        );
+      }
     },
-    [persistOrders],
+    [showToast, updateStageMut],
   );
 
   const declineOrder = useCallback(
     (orderId: string) => {
-      persistOrders((prev) =>
-        prev.map((o) => (o.id === orderId ? { ...o, declined: true } : o)),
-      );
-      showToast(`Order #${orderId} declined. Slot was not deducted.`);
+      if (isSupabaseConfigured && orderId !== DEMO_SHOWCASE_ORDER.id) {
+        declineMut.mutate(
+          { commissionId: orderId },
+          {
+            onSuccess: () => showToast(`Order #${orderId} declined. Slot was not deducted.`),
+            onError: (err) => showToast(err.message),
+          },
+        );
+      } else {
+        setLocalOrders((prev) => prev.map((o) => (o.id === orderId ? { ...o, declined: true } : o)));
+        showToast(`Order #${orderId} declined.`);
+      }
     },
-    [persistOrders, showToast],
+    [declineMut, showToast],
   );
 
   const toggleOrderPaymentFlag = useCallback(
     (orderId: string, field: 'depositPaid' | 'finalPaid') => {
-      persistOrders((prev) =>
-        prev.map((o) => {
-          if (o.id !== orderId) return o;
-          const nextVal = !o[field];
-          let nextStage = o.stage;
-          let nextProgress = o.progress;
-          if (field === 'depositPaid' && nextVal && o.stage === 'awaiting_deposit') {
-            nextStage = 'sketching';
-            nextProgress = 42;
-          }
-          if (field === 'finalPaid' && nextVal && o.stage === 'sketch_approval') {
-            nextStage = 'lineart_coloring';
-            nextProgress = 85;
-          }
-          return { ...o, [field]: nextVal, stage: nextStage, progress: nextProgress };
-        }),
-      );
+      const target = submittedOrders.find((o) => o.id === orderId);
+      if (!target) return;
+      const nextVal = !target[field];
+      const dbField = field === 'depositPaid' ? 'deposit_paid' : 'final_paid';
+
+      if (isSupabaseConfigured && orderId !== DEMO_SHOWCASE_ORDER.id) {
+        togglePaymentMut.mutate(
+          { commissionId: orderId, field: dbField, value: nextVal, currentStage: target.stage },
+          {
+            onSuccess: () => showToast(`Updated payment status for #${target.orderCode || target.id}.`),
+            onError: (err) => showToast(err.message),
+          },
+        );
+      } else {
+        setLocalOrders((prev) =>
+          prev.map((o) => (o.id === orderId ? { ...o, [field]: nextVal } : o)),
+        );
+      }
     },
-    [persistOrders],
+    [showToast, submittedOrders, togglePaymentMut],
   );
 
   const updateOrderSchedule = useCallback(
     (orderId: string, startDate: string, estEndDate: string) => {
-      persistOrders((prev) =>
-        prev.map((o) => (o.id === orderId ? { ...o, startDate, preferredStartDate: startDate, estEndDate } : o)),
-      );
-      showToast(`Updated schedule window for #${orderId}.`);
+      if (isSupabaseConfigured && orderId !== DEMO_SHOWCASE_ORDER.id) {
+        updateScheduleMut.mutate(
+          { commissionId: orderId, startDate, estEndDate },
+          {
+            onSuccess: () => showToast('Updated schedule window.'),
+            onError: (err) => showToast(err.message),
+          },
+        );
+      } else {
+        setLocalOrders((prev) =>
+          prev.map((o) => (o.id === orderId ? { ...o, startDate, estEndDate } : o)),
+        );
+        showToast('Updated schedule window.');
+      }
     },
-    [persistOrders, showToast],
+    [showToast, updateScheduleMut],
   );
 
   const uploadArtistWip = useCallback(
@@ -684,34 +745,33 @@ export function StudioProvider({ children }: { children: ReactNode }) {
       payload: { title: string; artistNote: string; isFinal: boolean; imageUrl?: string; slug?: string },
     ) => {
       const nowIso = new Date().toISOString();
-      persistOrders((prev) =>
+      const newWip: WipUploadItem = {
+        id: `wip-${Date.now()}`,
+        commissionId: orderId,
+        stage: payload.isFinal ? 'completed' : 'sketch_approval',
+        title: payload.title,
+        slug: payload.slug ?? (payload.imageUrl ? undefined : 'kitsunegem'),
+        imageUrl: payload.imageUrl,
+        isFinal: payload.isFinal,
+        artistNote: payload.artistNote,
+        approvedByClient: false,
+        createdAt: nowIso,
+      };
+
+      setLocalOrders((prev) =>
         prev.map((o) => {
           if (o.id !== orderId) return o;
-          const newWip: WipUploadItem = {
-            id: `wip-${Date.now()}`,
-            commissionId: orderId,
-            stage: payload.isFinal ? 'completed' : 'sketch_approval',
-            title: payload.title,
-            slug: payload.slug ?? (payload.imageUrl ? undefined : TIER_SAMPLE_SLUG[o.tier]),
-            imageUrl: payload.imageUrl,
-            isFinal: payload.isFinal,
-            artistNote: payload.artistNote,
-            approvedByClient: false,
-            createdAt: nowIso,
-          };
-          const nextStage: CommissionStage = payload.isFinal ? 'completed' : 'sketch_approval';
-          const nextProgress = payload.isFinal ? 100 : 62;
           return {
             ...o,
-            stage: nextStage,
-            progress: nextProgress,
+            stage: payload.isFinal ? 'completed' : 'sketch_approval',
+            progress: payload.isFinal ? 100 : 62,
             wips: [newWip, ...o.wips],
           };
         }),
       );
-      showToast(payload.isFinal ? 'Final master file uploaded & unlocked!' : 'Watermarked WIP uploaded to client room!');
+      showToast(payload.isFinal ? 'Final master file unlocked!' : 'Watermarked WIP uploaded!');
     },
-    [persistOrders, showToast],
+    [showToast],
   );
 
   const sendOrderMessage = useCallback(
@@ -720,114 +780,98 @@ export function StudioProvider({ children }: { children: ReactNode }) {
       body: string,
       opts?: { attachmentUrl?: string; attachmentKind?: AttachmentKind; senderRole?: 'client' | 'artist' },
     ) => {
-      const role = opts?.senderRole ?? 'client';
-      const newMsg: OrderMessage = {
-        id: `msg-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-        commissionId: orderId,
-        senderRole: role,
-        senderName: role === 'artist' ? 'Meru Art' : 'You',
-        body,
-        attachmentUrl: opts?.attachmentUrl,
-        attachmentKind: opts?.attachmentKind,
-        createdAt: new Date().toISOString(),
-      };
+      if (isSupabaseConfigured && orderId !== DEMO_SHOWCASE_ORDER.id) {
+        sendMessageMut.mutate(
+          { commissionId: orderId, body, opts },
+          {
+            onError: (err) => showToast(err.message),
+          },
+        );
+      } else {
+        const role = opts?.senderRole ?? 'client';
+        const newMsg: OrderMessage = {
+          id: `msg-${Date.now()}`,
+          commissionId: orderId,
+          senderRole: role,
+          senderName: role === 'artist' ? 'Meru Art' : 'You',
+          body,
+          attachmentUrl: opts?.attachmentUrl,
+          attachmentKind: opts?.attachmentKind,
+          createdAt: new Date().toISOString(),
+        };
 
-      persistOrders((prev) =>
-        prev.map((o) => (o.id === orderId ? { ...o, messages: [...o.messages, newMsg] } : o)),
-      );
+        setLocalOrders((prev) =>
+          prev.map((o) => (o.id === orderId ? { ...o, messages: [...o.messages, newMsg] } : o)),
+        );
 
-      if (role === 'client') {
-        window.setTimeout(() => {
-          const replyText =
-            opts?.attachmentKind === 'receipt'
-              ? 'Receipt received & verified! I’ve unlocked the next stage of your commission on the tracker above.'
-              : opts?.attachmentKind === 'redline'
-                ? 'Got your redline notes! I’ll adjust the sketch proportions and post an updated WIP shortly.'
-                : 'Got your message! I’ll keep you posted here as I work on your piece.';
-          const reply: OrderMessage = {
-            id: `msg-${Date.now()}-bot`,
-            commissionId: orderId,
-            senderRole: 'artist',
-            senderName: 'Meru Art',
-            body: replyText,
-            createdAt: new Date().toISOString(),
-          };
-          persistOrders((prev) =>
-            prev.map((o) => (o.id === orderId ? { ...o, messages: [...o.messages, reply] } : o)),
-          );
-        }, 900);
+        // Auto-reply bot strictly for demo showcase order
+        if (role === 'client' && (orderId === DEMO_SHOWCASE_ORDER.id || isDemoMode)) {
+          window.setTimeout(() => {
+            const reply: OrderMessage = {
+              id: `msg-${Date.now()}-bot`,
+              commissionId: orderId,
+              senderRole: 'artist',
+              senderName: 'Meru Art (Demo)',
+              body: 'Got your message! (Simulated response in Demo Mode)',
+              createdAt: new Date().toISOString(),
+            };
+            setLocalOrders((prev) =>
+              prev.map((o) => (o.id === orderId ? { ...o, messages: [...o.messages, reply] } : o)),
+            );
+          }, 900);
+        }
       }
     },
-    [persistOrders],
+    [isDemoMode, sendMessageMut, showToast],
   );
 
   const uploadPaymentReceipt = useCallback(
     (orderId: string, kind: 'deposit' | 'final', attachmentUrl?: string) => {
-      persistOrders((prev) =>
-        prev.map((o) => {
-          if (o.id !== orderId) return o;
-          if (kind === 'deposit') {
-            const nextStage: CommissionStage = 'sketching';
-            return { ...o, depositPaid: true, stage: nextStage, progress: 42 };
-          }
-          const nextStage: CommissionStage = 'lineart_coloring';
-          return { ...o, finalPaid: true, sketchApproved: true, stage: nextStage, progress: 85 };
-        }),
-      );
+      const target = submittedOrders.find((o) => o.id === orderId);
+      if (!target) return;
 
-      sendOrderMessage(
-        orderId,
-        kind === 'deposit'
-          ? 'Uploaded upfront deposit receipt via GCash/PayPal.'
-          : 'Approved the sketch & uploaded the remaining 50% balance receipt!',
-        { attachmentUrl, attachmentKind: 'receipt', senderRole: 'client' },
-      );
-      showToast(
-        kind === 'deposit'
-          ? 'Deposit receipt uploaded! Stage advanced to Sketching.'
-          : 'Remaining 50% receipt uploaded! Stage advanced to Lineart & Coloring.',
-      );
+      const amount = kind === 'deposit' ? target.depositUsd : Math.max(0, target.totalUsd - target.depositUsd);
+
+      if (isSupabaseConfigured && orderId !== DEMO_SHOWCASE_ORDER.id) {
+        submitPaymentReceiptInDb(orderId, kind, amount, target.currency, attachmentUrl).then(() => {
+          queryClient.invalidateQueries({ queryKey: QUERY_KEYS.commissions });
+          queryClient.invalidateQueries({ queryKey: QUERY_KEYS.payments(orderId) });
+        });
+        sendOrderMessage(
+          orderId,
+          `Uploaded ${kind === 'deposit' ? 'upfront deposit' : 'remaining balance'} payment receipt for verification.`,
+          { attachmentUrl, attachmentKind: 'receipt', senderRole: 'client' },
+        );
+        showToast('Payment receipt submitted! Meru will verify it shortly.');
+      } else {
+        sendOrderMessage(
+          orderId,
+          `Uploaded ${kind === 'deposit' ? 'deposit' : 'balance'} receipt (Demo Mode).`,
+          { attachmentUrl, attachmentKind: 'receipt', senderRole: 'client' },
+        );
+        showToast('Payment receipt uploaded (Demo Mode)!');
+      }
     },
-    [persistOrders, sendOrderMessage, showToast],
+    [queryClient, sendOrderMessage, showToast, submittedOrders],
   );
 
   const approveOrderSketch = useCallback(
     (orderId: string) => {
-      persistOrders((prev) =>
-        prev.map((o) => {
-          if (o.id !== orderId) return o;
-          const isFullUpfront = o.paymentSplit === '100_upfront' || o.finalPaid;
-          const nextStage: CommissionStage = isFullUpfront ? 'lineart_coloring' : 'sketch_approval';
-          return {
-            ...o,
-            sketchApproved: true,
-            stage: nextStage,
-            progress: isFullUpfront ? 85 : o.progress,
-            wips: o.wips.map((w) => (w.stage === 'sketch_approval' ? { ...w, approvedByClient: true } : w)),
-          };
-        }),
-      );
       sendOrderMessage(orderId, 'Sketch approved! Ready for clean lineart & coloring.', { senderRole: 'client' });
-      showToast('Sketch marked as approved!');
+      showToast('Sketch approved!');
     },
-    [persistOrders, sendOrderMessage, showToast],
+    [sendOrderMessage, showToast],
   );
 
   const signOut = useCallback(async () => {
     if (supabase) await supabase.auth.signOut();
     setUser(null);
-  }, []);
+    queryClient.clear();
+  }, [queryClient]);
 
-  const isArtistAdmin = useMemo(
-    () =>
-      Boolean(
-        devAdminPreview ||
-          (user &&
-            ((user.app_metadata as { role?: string } | undefined)?.role === 'artist' ||
-              (artistAdminUid && user.id === artistAdminUid))),
-      ),
-    [devAdminPreview, user],
-  );
+  const signInWithGoogle = useCallback(async () => {
+    await signInWithOAuthProvider('google');
+  }, []);
 
   const openLightbox = useCallback((ids: string[], index: number) => setLightbox({ ids, index }), []);
   const setLightboxIndex = useCallback((index: number) => setLightbox((lb) => (lb ? { ...lb, index } : lb)), []);
@@ -861,6 +905,8 @@ export function StudioProvider({ children }: { children: ReactNode }) {
       activeOrderId,
       setActiveOrderId,
       hasPendingOrder,
+      isLoadingOrders,
+      isDemoMode,
       submitOrder,
       setOrderStage,
       declineOrder,
@@ -876,6 +922,7 @@ export function StudioProvider({ children }: { children: ReactNode }) {
       setDevAdminPreview,
       supabaseLive: isSupabaseConfigured,
       signOut,
+      signInWithGoogle,
       lightbox,
       openLightbox,
       setLightboxIndex,
@@ -906,6 +953,8 @@ export function StudioProvider({ children }: { children: ReactNode }) {
       submittedOrders,
       activeOrderId,
       hasPendingOrder,
+      isLoadingOrders,
+      isDemoMode,
       submitOrder,
       setOrderStage,
       declineOrder,
@@ -919,6 +968,7 @@ export function StudioProvider({ children }: { children: ReactNode }) {
       isArtistAdmin,
       devAdminPreview,
       signOut,
+      signInWithGoogle,
       lightbox,
       openLightbox,
       setLightboxIndex,

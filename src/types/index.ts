@@ -163,6 +163,7 @@ export interface WipUploadItem {
 
 export interface SubmittedOrder extends OrderDraft {
   id: string;
+  orderCode?: string;
   createdAt: string;
   totalUsd: number;
   depositUsd: number;
