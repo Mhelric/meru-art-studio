@@ -14,6 +14,9 @@ import {
   ShieldAlert,
   Sparkles,
   Unlock,
+  Volume2,
+  VolumeX,
+  Bell,
 } from 'lucide-react';
 import { useMemo, useRef, useState, type ChangeEvent, type FormEvent } from 'react';
 import { STAGE_STEPS } from '@/data/orders';
@@ -24,6 +27,9 @@ import { SectionHeading } from '@/components/ui/SectionHeading';
 import { BrandIcon } from '@/components/ui/BrandIcon';
 import { EASE, Reveal } from '@/components/ui/Reveal';
 import { uploadReceiptFile, uploadChatAttachment, getSignedMediaUrl, STORAGE_BUCKETS } from '@/lib/storage';
+import { useCommissionRealtime } from '@/lib/realtime';
+import { isAudioNotificationEnabled, setAudioNotificationEnabled, playNotificationSound } from '@/lib/audio';
+import { requestNotificationPermission } from '@/lib/notifications';
 import type { AttachmentKind, SubmittedOrder, WipUploadItem } from '@/types';
 
 /**
@@ -59,11 +65,33 @@ export function OrderTracker() {
   const chatFileInputRef = useRef<HTMLInputElement | null>(null);
   const [pendingReceiptType, setPendingReceiptType] = useState<'deposit' | 'final'>('deposit');
   const [downloadingWipId, setDownloadingWipId] = useState<string | null>(null);
+  const [soundActive, setSoundActive] = useState(() => isAudioNotificationEnabled());
 
   const order = useMemo(
     () => submittedOrders.find((o) => o.id === activeOrderId) ?? submittedOrders[0],
     [submittedOrders, activeOrderId],
   );
+
+  // Phase 6D: Realtime WebSocket Subscription for active commission
+  useCommissionRealtime(order?.id, user?.id);
+
+  const handleToggleSound = () => {
+    const next = !soundActive;
+    setSoundActive(next);
+    setAudioNotificationEnabled(next);
+    if (next) playNotificationSound('message');
+    showToast(next ? 'Sound notifications enabled' : 'Sound notifications muted');
+  };
+
+  const handleRequestDesktopNotifications = async () => {
+    const perm = await requestNotificationPermission();
+    if (perm === 'granted') {
+      showToast('Desktop notifications enabled for Meru Art Studio!');
+      playNotificationSound('success');
+    } else {
+      showToast('Desktop notifications were not enabled (permission denied).');
+    }
+  };
 
   // 1. Loading State
   if (isLoadingOrders && !isDemoMode) {
@@ -562,11 +590,45 @@ export function OrderTracker() {
                   <MessageSquare className="size-4" />
                 </span>
                 <div>
-                  <h4 className="font-display text-base font-semibold text-ink">
-                    Order Chat · #{orderDisplayCode}
-                  </h4>
+                  <div className="flex items-center gap-2">
+                    <h4 className="font-display text-base font-semibold text-ink">
+                      Order Chat · #{orderDisplayCode}
+                    </h4>
+                    {!isDemo && (
+                      <span className="inline-flex items-center gap-1 rounded-full bg-teal-soft px-2 py-0.5 text-[10px] font-semibold text-teal">
+                        <span className="size-1.5 rounded-full bg-teal animate-pulse" /> Live
+                      </span>
+                    )}
+                  </div>
                   <p className="text-[11px] text-ink-mute">Direct communication with Meru</p>
                 </div>
+              </div>
+
+              {/* Realtime Audio Chime & Browser Notification Toggles */}
+              <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={handleToggleSound}
+                  title={soundActive ? 'Mute notification sound chimes' : 'Unmute notification sound chimes'}
+                  aria-label={soundActive ? 'Mute audio' : 'Unmute audio'}
+                  className={cn(
+                    'grid size-7 place-items-center rounded-full border text-xs transition-colors',
+                    soundActive
+                      ? 'border-line bg-paper text-ink hover:border-ink/30'
+                      : 'border-dashed border-ink/20 bg-cream text-ink-mute hover:text-ink',
+                  )}
+                >
+                  {soundActive ? <Volume2 className="size-3.5 text-teal" /> : <VolumeX className="size-3.5" />}
+                </button>
+                <button
+                  type="button"
+                  onClick={handleRequestDesktopNotifications}
+                  title="Enable desktop notifications"
+                  aria-label="Enable desktop notifications"
+                  className="grid size-7 place-items-center rounded-full border border-line bg-paper text-ink-soft hover:border-ink/30 hover:text-coral transition-colors"
+                >
+                  <Bell className="size-3.5" />
+                </button>
               </div>
             </div>
 

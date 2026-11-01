@@ -165,8 +165,6 @@ export async function resolveStorageUrl(
   let bucket = defaultBucket;
   if (pathOrUrl.startsWith('previews/') || pathOrUrl.startsWith('masters/')) {
     bucket = STORAGE_BUCKETS.wips;
-  } else if (pathOrUrl.includes('receipt')) {
-    bucket = STORAGE_BUCKETS.receipts;
   }
 
   const cacheKey = `${bucket}:${pathOrUrl}`;

@@ -1,0 +1,229 @@
+import { useEffect, useRef } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
+import { supabase } from '@/lib/supabase';
+import { QUERY_KEYS } from '@/lib/queries';
+import { playNotificationSound } from '@/lib/audio';
+import { showSystemNotification } from '@/lib/notifications';
+import { useStudio } from '@/context/StudioContext';
+import type { CommissionStage } from '@/types';
+
+/**
+ * Realtime subscription hook for an active commission order room.
+ * Subscribes to messages, stage/pricing updates, WIP uploads, and payment verifications.
+ * Automatically cleans up on unmount or active order switch.
+ */
+export function useCommissionRealtime(
+  commissionId: string | null | undefined,
+  currentUserId: string | null | undefined,
+) {
+  const queryClient = useQueryClient();
+  const { showToast } = useStudio();
+  const channelRef = useRef<any>(null);
+
+  useEffect(() => {
+    // Only subscribe if real Supabase connection exists and order is not a demo ID
+    if (!supabase || !commissionId || (commissionId.startsWith('MRU-') && commissionId.length < 12)) {
+      return;
+    }
+
+    const channelName = `commission-realtime-${commissionId}`;
+    const channel = supabase.channel(channelName);
+
+    channel
+      // 1. Realtime Messages
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'messages',
+          filter: `commission_id=eq.${commissionId}`,
+        },
+        (payload: any) => {
+          const newMsg = payload.new;
+          queryClient.invalidateQueries({ queryKey: QUERY_KEYS.commissions });
+
+          // Notify client if message was sent by the artist
+          if (newMsg.sender_role === 'artist' && newMsg.sender_id !== currentUserId) {
+            playNotificationSound('message');
+            showToast(`🎨 Meru Art: "${newMsg.body.slice(0, 60)}${newMsg.body.length > 60 ? '...' : ''}"`);
+            showSystemNotification('New Message from Meru Art', {
+              body: newMsg.body,
+              tag: `msg-${newMsg.id}`,
+            });
+          }
+        },
+      )
+      // 2. Realtime Commission Updates (Stage / Payment flags / Schedule)
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'commissions',
+          filter: `id=eq.${commissionId}`,
+        },
+        (payload: any) => {
+          const oldRow = payload.old;
+          const newRow = payload.new;
+
+          queryClient.invalidateQueries({ queryKey: QUERY_KEYS.commissions });
+          queryClient.invalidateQueries({ queryKey: QUERY_KEYS.publicStudioData });
+
+          if (oldRow && oldRow.status_stage !== newRow.status_stage) {
+            playNotificationSound('stage');
+            const stageLabel = (newRow.status_stage as CommissionStage).replace('_', ' ').toUpperCase();
+            showToast(`🚀 Order status updated: ${stageLabel}`);
+            showSystemNotification('Commission Stage Updated', {
+              body: `Your commission is now in ${stageLabel}. Check your order tracker!`,
+              tag: `stage-${newRow.id}`,
+            });
+          }
+
+          if (newRow.deposit_paid && (!oldRow || !oldRow.deposit_paid)) {
+            playNotificationSound('success');
+            showToast('💰 Upfront deposit verified! Sketching is underway.');
+          }
+
+          if (newRow.final_paid && (!oldRow || !oldRow.final_paid)) {
+            playNotificationSound('success');
+            showToast('✨ Final payment verified! High-res master deliverable unlocked.');
+          }
+        },
+      )
+      // 3. Realtime WIPs & Deliverables
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'wip_uploads',
+          filter: `commission_id=eq.${commissionId}`,
+        },
+        (payload: any) => {
+          const newWip = payload.new;
+          queryClient.invalidateQueries({ queryKey: QUERY_KEYS.commissions });
+          playNotificationSound('stage');
+          showToast(`🎨 Meru uploaded new artwork: "${newWip.title}"`);
+          showSystemNotification('New Artwork WIP Posted!', {
+            body: `Meru posted "${newWip.title}". Check your tracker!`,
+            tag: `wip-${newWip.id}`,
+          });
+        },
+      )
+      // 4. Realtime Payments
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'payments',
+          filter: `commission_id=eq.${commissionId}`,
+        },
+        (payload: any) => {
+          queryClient.invalidateQueries({ queryKey: QUERY_KEYS.payments(commissionId) });
+          queryClient.invalidateQueries({ queryKey: QUERY_KEYS.commissions });
+
+          if (payload.new.status === 'verified') {
+            playNotificationSound('success');
+            showToast('Receipt verified by Meru Art Studio.');
+          }
+        },
+      )
+      .subscribe();
+
+    channelRef.current = channel;
+
+    return () => {
+      if (channelRef.current && supabase) {
+        supabase.removeChannel(channelRef.current);
+        channelRef.current = null;
+      }
+    };
+  }, [commissionId, currentUserId, queryClient, showToast]);
+}
+
+/**
+ * Realtime subscription hook for the Artist Admin control surface.
+ * Subscribes to all incoming commission submissions, payment receipt uploads, and client chat messages.
+ */
+export function useAdminRealtime(isArtistAdmin: boolean, currentUserId: string | null | undefined) {
+  const queryClient = useQueryClient();
+  const { showToast } = useStudio();
+  const channelRef = useRef<any>(null);
+
+  useEffect(() => {
+    if (!supabase || !isArtistAdmin) return;
+
+    const channelName = 'artist-admin-realtime';
+    const channel = supabase.channel(channelName);
+
+    channel
+      // 1. Incoming new brief submissions
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'commissions',
+        },
+        (payload: any) => {
+          const newOrder = payload.new;
+          queryClient.invalidateQueries({ queryKey: QUERY_KEYS.adminCommissions });
+          queryClient.invalidateQueries({ queryKey: QUERY_KEYS.publicStudioData });
+          playNotificationSound('stage');
+          showToast(`🔔 New Commission Brief submitted by @${newOrder.client_handle || 'client'}!`);
+          showSystemNotification('New Commission Brief Received!', {
+            body: `@${newOrder.client_handle} requested a ${newOrder.tier} commission.`,
+            tag: `new-brief-${newOrder.id}`,
+          });
+        },
+      )
+      // 2. Client chat message
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'messages',
+        },
+        (payload: any) => {
+          const newMsg = payload.new;
+          if (newMsg.sender_role === 'client' && newMsg.sender_id !== currentUserId) {
+            queryClient.invalidateQueries({ queryKey: QUERY_KEYS.adminCommissions });
+            playNotificationSound('message');
+            showToast(`💬 Client Message: "${newMsg.body.slice(0, 50)}${newMsg.body.length > 50 ? '...' : ''}"`);
+          }
+        },
+      )
+      // 3. Client uploaded payment receipt
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'payments',
+        },
+        (payload: any) => {
+          const newPayment = payload.new;
+          queryClient.invalidateQueries({ queryKey: QUERY_KEYS.adminCommissions });
+          playNotificationSound('stage');
+          showToast(`🧾 New ${newPayment.kind} payment receipt uploaded for verification!`);
+          showSystemNotification('New Payment Receipt Uploaded', {
+            body: `Client submitted a ${newPayment.kind} payment receipt.`,
+            tag: `receipt-${newPayment.id}`,
+          });
+        },
+      )
+      .subscribe();
+
+    channelRef.current = channel;
+
+    return () => {
+      if (channelRef.current && supabase) {
+        supabase.removeChannel(channelRef.current);
+        channelRef.current = null;
+      }
+    };
+  }, [isArtistAdmin, currentUserId, queryClient, showToast]);
+}

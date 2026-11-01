@@ -24,6 +24,7 @@ import { ACCENT_CLASSES, TIER_ACCENT, cn, formatMoney, formatShortDate, formatUs
 import { SectionHeading } from '@/components/ui/SectionHeading';
 import { Reveal } from '@/components/ui/Reveal';
 import { uploadWipArtwork } from '@/lib/storage';
+import { useAdminRealtime } from '@/lib/realtime';
 import type { AvailabilityStatus, TierId } from '@/types';
 
 const WEEKDAYS = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
@@ -63,7 +64,12 @@ export function AdminPanel() {
     setDevAdminPreview,
     setActiveTab,
     showToast,
+    isArtistAdmin,
+    user,
   } = useStudio();
+
+  // Phase 6D: Realtime WebSocket Subscription for Artist Admin control surface
+  useAdminRealtime(isArtistAdmin, user?.id);
 
   // Mini-calendar state for 1-click date blocking
   const [cursor, setCursor] = useState<{ year: number; month: number }>({ year: 2026, month: 10 }); // Nov 2026
