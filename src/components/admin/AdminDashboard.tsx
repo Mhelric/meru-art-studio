@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { Eye, RotateCcw, Sliders } from 'lucide-react';
 import { useStudio } from '@/context/StudioContext';
 import { SectionHeading } from '@/components/ui/SectionHeading';
@@ -19,10 +19,12 @@ import type { SubmittedOrder } from '@/types';
 export function AdminDashboard() {
   const {
     submittedOrders,
+    isLoadingOrders,
     activeOrderId,
     setActiveOrderId,
     setOrderStage,
     declineOrder,
+    cancelOrder,
     deleteOrder,
     toggleOrderPaymentFlag,
     resetStudioSettings,
@@ -44,21 +46,53 @@ export function AdminDashboard() {
     return segmented.counts.briefs > 0 ? 'briefs' : 'pipeline';
   });
 
+  // Safe initial navigation: waits for async orders to load, then auto-selects briefs if new briefs exist
+  // and the artist has not manually clicked a tab.
+  // Realtime updates after initial load will NEVER hijack the artist's current workspace.
+  const userInteractedRef = useRef(false);
+  const initialNavDoneRef = useRef(false);
+
+  const handleSubTabChange = (tab: AdminSubTab) => {
+    userInteractedRef.current = true;
+    setActiveSubTab(tab);
+  };
+
+  useEffect(() => {
+    if (isLoadingOrders) return;
+
+    if (!initialNavDoneRef.current) {
+      if (!userInteractedRef.current && segmented.counts.briefs > 0) {
+        setActiveSubTab('briefs');
+      }
+      initialNavDoneRef.current = true;
+    }
+  }, [isLoadingOrders, segmented.counts.briefs]);
+
   // Modal dialog states
-  const [orderToDecline, setOrderToDecline] = useState<SubmittedOrder | null>(null);
+  const [orderToDeclineOrCancel, setOrderToDeclineOrCancel] = useState<SubmittedOrder | null>(null);
+  const [reasonModalMode, setReasonModalMode] = useState<'decline' | 'cancel'>('decline');
   const [orderToDelete, setOrderToDelete] = useState<SubmittedOrder | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
 
+  // Keep live order reference for deletion dialog to reflect real-time payment updates
+  const liveOrderToDelete =
+    (orderToDelete && submittedOrders.find((o) => o.id === orderToDelete.id)) || orderToDelete;
+
   const handleAcceptBrief = (orderId: string) => {
     setOrderStage(orderId, 'awaiting_deposit');
-    showToast(`Approved #${orderId}! Client notified to upload deposit.`);
+    const order = submittedOrders.find((o) => o.id === orderId);
+    showToast(`Approved #${order?.orderCode || orderId.slice(0, 8)}! Client notified to upload deposit.`);
     // Automatically switch to pipeline tab if desired
     setActiveOrderId(orderId);
     setActiveSubTab('pipeline');
   };
 
-  const handleConfirmDecline = (orderId: string, reason?: string) => {
-    declineOrder(orderId, reason);
+  const handleConfirmDeclineOrCancel = (orderId: string, reason?: string) => {
+    if (reasonModalMode === 'cancel') {
+      cancelOrder(orderId, reason);
+    } else {
+      declineOrder(orderId, reason);
+    }
   };
 
   const handleConfirmDelete = async (orderId: string): Promise<boolean> => {
@@ -95,17 +129,19 @@ export function AdminDashboard() {
         </div>
 
         <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={() => setDevAdminPreview(!devAdminPreview)}
-            className={cn(
-              'inline-flex items-center gap-1.5 rounded-full px-3.5 py-2 text-xs font-semibold transition-colors',
-              devAdminPreview ? 'bg-ink text-white' : 'border border-line bg-paper text-ink-soft',
-            )}
-          >
-            <Eye className="size-3.5 text-mustard" />
-            Dev Preview: {devAdminPreview ? 'ON' : 'OFF'}
-          </button>
+          {import.meta.env.DEV && (
+            <button
+              type="button"
+              onClick={() => setDevAdminPreview(!devAdminPreview)}
+              className={cn(
+                'inline-flex items-center gap-1.5 rounded-full px-3.5 py-2 text-xs font-semibold transition-colors',
+                devAdminPreview ? 'bg-ink text-white' : 'border border-line bg-paper text-ink-soft',
+              )}
+            >
+              <Eye className="size-3.5 text-mustard" />
+              Dev Preview: {devAdminPreview ? 'ON' : 'OFF'}
+            </button>
+          )}
           <button
             type="button"
             onClick={resetStudioSettings}
@@ -126,7 +162,7 @@ export function AdminDashboard() {
       {/* Sub-Navigation Tabs */}
       <AdminNav
         activeSubTab={activeSubTab}
-        onChangeSubTab={setActiveSubTab}
+        onChangeSubTab={handleSubTabChange}
         counts={{
           briefs: segmented.counts.briefs,
           active: segmented.counts.active,
@@ -140,6 +176,7 @@ export function AdminDashboard() {
         role="tabpanel"
         id={`admin-panel-${activeSubTab}`}
         aria-labelledby={`admin-tab-${activeSubTab}`}
+        tabIndex={0}
         className="focus:outline-none"
       >
         {activeSubTab === 'pipeline' && (
@@ -147,6 +184,10 @@ export function AdminDashboard() {
             orders={segmented.activePipeline}
             activeOrderId={activeOrderId}
             setActiveOrderId={setActiveOrderId}
+            onOpenCancelModal={(order) => {
+              setReasonModalMode('cancel');
+              setOrderToDeclineOrCancel(order);
+            }}
           />
         )}
 
@@ -154,7 +195,10 @@ export function AdminDashboard() {
           <IncomingBriefsTab
             orders={segmented.incomingBriefs}
             onAcceptBrief={handleAcceptBrief}
-            onOpenDeclineModal={(order) => setOrderToDecline(order)}
+            onOpenDeclineModal={(order) => {
+              setReasonModalMode('decline');
+              setOrderToDeclineOrCancel(order);
+            }}
           />
         )}
 
@@ -175,17 +219,18 @@ export function AdminDashboard() {
         )}
       </div>
 
-      {/* Decline Reason Modal */}
+      {/* Decline & Cancel Reason Modal */}
       <DeclineReasonModal
-        order={orderToDecline}
-        isOpen={Boolean(orderToDecline)}
-        onClose={() => setOrderToDecline(null)}
-        onConfirmDecline={handleConfirmDecline}
+        order={orderToDeclineOrCancel}
+        isOpen={Boolean(orderToDeclineOrCancel)}
+        mode={reasonModalMode}
+        onClose={() => setOrderToDeclineOrCancel(null)}
+        onConfirmDecline={handleConfirmDeclineOrCancel}
       />
 
       {/* Two-Step Destructive Delete Dialog */}
       <DeleteOrderDialog
-        order={orderToDelete}
+        order={liveOrderToDelete}
         isOpen={Boolean(orderToDelete)}
         isDeleting={isDeleting}
         onClose={() => setOrderToDelete(null)}

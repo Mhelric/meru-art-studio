@@ -7,6 +7,7 @@ import {
   Layers,
   Send,
   Sparkles,
+  XCircle,
 } from 'lucide-react';
 import { STAGE_STEPS } from '@/data/orders';
 import { useStudio } from '@/context/StudioContext';
@@ -26,9 +27,15 @@ interface PipelineTabProps {
   orders: SubmittedOrder[];
   activeOrderId: string;
   setActiveOrderId: (id: string) => void;
+  onOpenCancelModal?: (order: SubmittedOrder) => void;
 }
 
-export function PipelineTab({ orders, activeOrderId, setActiveOrderId }: PipelineTabProps) {
+export function PipelineTab({
+  orders,
+  activeOrderId,
+  setActiveOrderId,
+  onOpenCancelModal,
+}: PipelineTabProps) {
   const {
     setOrderStage,
     toggleOrderPaymentFlag,
@@ -298,6 +305,16 @@ export function PipelineTab({ orders, activeOrderId, setActiveOrderId }: Pipelin
                     </button>
                   );
                 })}
+              </div>
+              <div className="mt-3 flex items-center justify-between border-t border-line/60 pt-3">
+                <span className="text-[11px] text-ink-mute">Client requested cancellation or unable to fulfill?</span>
+                <button
+                  type="button"
+                  onClick={() => onOpenCancelModal?.(selectedOrder)}
+                  className="inline-flex items-center gap-1 rounded-xl border border-coral/30 bg-coral/5 px-2.5 py-1.5 text-xs font-semibold text-coral transition hover:bg-coral hover:text-white"
+                >
+                  <XCircle className="size-3.5" /> Cancel Commission
+                </button>
               </div>
             </div>
 

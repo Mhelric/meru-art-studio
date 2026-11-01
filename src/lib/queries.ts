@@ -128,7 +128,7 @@ export function useDeleteCommissionMutation() {
     mutationFn: async (commissionId: string) => {
       const res = await deleteCommissionInDb(commissionId);
       if (!res.success) throw new Error(res.error ?? 'Failed to delete commission');
-      return commissionId;
+      return { commissionId, failedStoragePaths: res.failedStoragePaths };
     },
     onMutate: async (deletedId) => {
       await queryClient.cancelQueries({ queryKey: QUERY_KEYS.commissions });

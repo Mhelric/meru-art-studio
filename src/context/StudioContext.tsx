@@ -201,6 +201,7 @@ interface StudioState {
   }>;
   setOrderStage: (orderId: string, stage: CommissionStage) => void;
   declineOrder: (orderId: string, reason?: string) => void;
+  cancelOrder: (orderId: string, reason?: string) => void;
   deleteOrder: (orderId: string) => Promise<boolean>;
   toggleOrderPaymentFlag: (orderId: string, field: 'depositPaid' | 'finalPaid') => void;
   updateOrderSchedule: (orderId: string, startDate: string, estEndDate: string) => void;
@@ -668,12 +669,14 @@ export function StudioProvider({ children }: { children: ReactNode }) {
     (orderId: string, stage: CommissionStage) => {
       const meta = STAGE_STEPS.find((s) => s.id === stage);
       const progress = meta?.progress;
+      const target = submittedOrders.find((o) => o.id === orderId);
+      const orderLabel = target?.orderCode || orderId.slice(0, 8);
 
       if (isSupabaseConfigured && orderId !== DEMO_SHOWCASE_ORDER.id) {
         updateStageMut.mutate(
           { commissionId: orderId, stage, progress },
           {
-            onSuccess: () => showToast(`Order stage updated to ${stage}.`),
+            onSuccess: () => showToast(`Order #${orderLabel} moved to ${meta?.shortLabel ?? stage}.`),
             onError: (err) => showToast(err.message),
           },
         );
@@ -681,18 +684,21 @@ export function StudioProvider({ children }: { children: ReactNode }) {
         setLocalOrders((prev) =>
           prev.map((o) => (o.id === orderId ? { ...o, stage, progress: progress ?? o.progress } : o)),
         );
+        showToast(`Order #${orderLabel} moved to ${meta?.shortLabel ?? stage}.`);
       }
     },
-    [showToast, updateStageMut],
+    [isSupabaseConfigured, showToast, submittedOrders, updateStageMut],
   );
 
   const declineOrder = useCallback(
     (orderId: string, reason?: string) => {
+      const target = submittedOrders.find((o) => o.id === orderId);
+      const orderLabel = target?.orderCode || orderId.slice(0, 8);
       if (isSupabaseConfigured && orderId !== DEMO_SHOWCASE_ORDER.id) {
         declineMut.mutate(
-          { commissionId: orderId, reason },
+          { commissionId: orderId, reason, targetStage: 'declined' },
           {
-            onSuccess: () => showToast(`Order #${orderId} declined and moved to Archive.`),
+            onSuccess: () => showToast(`Order #${orderLabel} declined and moved to Archive.`),
             onError: (err) => showToast(err.message),
           },
         );
@@ -700,18 +706,49 @@ export function StudioProvider({ children }: { children: ReactNode }) {
         setLocalOrders((prev) =>
           prev.map((o) => (o.id === orderId ? { ...o, declined: true, stage: 'declined' } : o)),
         );
-        showToast(`Order #${orderId} moved to Archive.`);
+        showToast(`Order #${orderLabel} moved to Archive.`);
       }
     },
-    [declineMut, showToast],
+    [declineMut, isSupabaseConfigured, showToast, submittedOrders],
+  );
+
+  const cancelOrder = useCallback(
+    (orderId: string, reason?: string) => {
+      const target = submittedOrders.find((o) => o.id === orderId);
+      const orderLabel = target?.orderCode || orderId.slice(0, 8);
+      if (isSupabaseConfigured && orderId !== DEMO_SHOWCASE_ORDER.id) {
+        declineMut.mutate(
+          { commissionId: orderId, reason, targetStage: 'cancelled' },
+          {
+            onSuccess: () => showToast(`Order #${orderLabel} cancelled and moved to Archive.`),
+            onError: (err) => showToast(err.message),
+          },
+        );
+      } else {
+        setLocalOrders((prev) =>
+          prev.map((o) => (o.id === orderId ? { ...o, stage: 'cancelled' } : o)),
+        );
+        showToast(`Order #${orderLabel} cancelled and moved to Archive.`);
+      }
+    },
+    [declineMut, isSupabaseConfigured, showToast, submittedOrders],
   );
 
   const deleteOrder = useCallback(
     async (orderId: string): Promise<boolean> => {
+      const target = submittedOrders.find((o) => o.id === orderId);
+      const orderLabel = target?.orderCode || orderId.slice(0, 8);
       if (isSupabaseConfigured && orderId !== DEMO_SHOWCASE_ORDER.id) {
         try {
-          await deleteMut.mutateAsync(orderId);
-          showToast(`Order #${orderId} permanently deleted.`);
+          const res = await deleteMut.mutateAsync(orderId);
+          if (res.failedStoragePaths && res.failedStoragePaths.length > 0) {
+            console.error('Failed storage cleanup paths for order:', orderId, res.failedStoragePaths);
+            showToast(
+              `Order #${orderLabel} deleted from database, but ${res.failedStoragePaths.length} storage files failed to remove.`,
+            );
+          } else {
+            showToast(`Order #${orderLabel} permanently purged.`);
+          }
           return true;
         } catch (err: unknown) {
           const msg = err instanceof Error ? err.message : 'Failed to delete order';
@@ -720,11 +757,11 @@ export function StudioProvider({ children }: { children: ReactNode }) {
         }
       } else {
         setLocalOrders((prev) => prev.filter((o) => o.id !== orderId));
-        showToast(`Order #${orderId} removed.`);
+        showToast(`Order #${orderLabel} removed.`);
         return true;
       }
     },
-    [deleteMut, showToast],
+    [deleteMut, isSupabaseConfigured, showToast, submittedOrders],
   );
 
   const toggleOrderPaymentFlag = useCallback(
@@ -958,6 +995,7 @@ export function StudioProvider({ children }: { children: ReactNode }) {
       submitOrder,
       setOrderStage,
       declineOrder,
+      cancelOrder,
       deleteOrder,
       toggleOrderPaymentFlag,
       updateOrderSchedule,
@@ -1007,6 +1045,7 @@ export function StudioProvider({ children }: { children: ReactNode }) {
       submitOrder,
       setOrderStage,
       declineOrder,
+      cancelOrder,
       deleteOrder,
       toggleOrderPaymentFlag,
       updateOrderSchedule,

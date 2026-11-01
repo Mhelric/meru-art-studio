@@ -270,6 +270,52 @@ describe('Admin Order Lifecycle Segmentation (segmentAdminOrders)', () => {
     expect(result.pendingPayments.map((o) => o.id)).toEqual(['2', '4']);
     expect(result.counts.payments).toBe(2);
 
+    // Invariant: briefs + active + archived must always partition total orders exactly
+    expect(result.counts.briefs + result.counts.active + result.counts.archived).toBe(result.counts.total);
     expect(result.counts.total).toBe(8);
+  });
+
+  it('verifies partition invariant: briefs + active + archived === total across all commission stages', () => {
+    const orders: SubmittedOrder[] = [
+      { ...dummyBaseOrder, id: '1', stage: 'pending_review' },
+      { ...dummyBaseOrder, id: '2', stage: 'awaiting_deposit' },
+      { ...dummyBaseOrder, id: '3', stage: 'sketching' },
+      { ...dummyBaseOrder, id: '4', stage: 'sketch_approval' },
+      { ...dummyBaseOrder, id: '5', stage: 'lineart_coloring' },
+      { ...dummyBaseOrder, id: '6', stage: 'completed' },
+      { ...dummyBaseOrder, id: '7', stage: 'declined' },
+      { ...dummyBaseOrder, id: '8', stage: 'cancelled' },
+    ];
+
+    const result = segmentAdminOrders(orders);
+    expect(result.counts.briefs + result.counts.active + result.counts.archived).toBe(result.counts.total);
+    expect(result.counts.total).toBe(orders.length);
+  });
+
+  it('flags completed orders with unpaid 50/50 balance in pendingPayments', () => {
+    const orders: SubmittedOrder[] = [
+      {
+        ...dummyBaseOrder,
+        id: 'comp-unpaid',
+        stage: 'completed',
+        paymentSplit: '50_50',
+        depositPaid: true,
+        finalPaid: false,
+      },
+      {
+        ...dummyBaseOrder,
+        id: 'comp-paid',
+        stage: 'completed',
+        paymentSplit: '50_50',
+        depositPaid: true,
+        finalPaid: true,
+      },
+    ];
+
+    const result = segmentAdminOrders(orders);
+    expect(result.counts.archived).toBe(2);
+    expect(result.counts.payments).toBe(1);
+    expect(result.pendingPayments.map((o) => o.id)).toEqual(['comp-unpaid']);
+    expect(result.counts.briefs + result.counts.active + result.counts.archived).toBe(result.counts.total);
   });
 });

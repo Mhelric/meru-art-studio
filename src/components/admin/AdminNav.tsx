@@ -1,5 +1,5 @@
 import { type KeyboardEvent } from 'react';
-import { motion } from 'framer-motion';
+import { motion, useReducedMotion } from 'framer-motion';
 import {
   FileText,
   Layers,
@@ -32,6 +32,8 @@ interface AdminNavProps {
 }
 
 export function AdminNav({ activeSubTab, onChangeSubTab, counts }: AdminNavProps) {
+  const shouldReduceMotion = useReducedMotion();
+
   const tabs: NavItem[] = [
     {
       id: 'pipeline',
@@ -47,7 +49,7 @@ export function AdminNav({ activeSubTab, onChangeSubTab, counts }: AdminNavProps
       short: 'Briefs',
       icon: FileText,
       badge: counts.briefs,
-      badgeColor: 'bg-mustard text-ink font-bold animate-pulse',
+      badgeColor: 'bg-mustard text-ink font-bold animate-pulse motion-reduce:animate-none',
     },
     {
       id: 'payments',
@@ -74,7 +76,13 @@ export function AdminNav({ activeSubTab, onChangeSubTab, counts }: AdminNavProps
   ];
 
   const handleKeyDown = (e: KeyboardEvent<HTMLElement>) => {
-    const currentIndex = tabs.findIndex((t) => t.id === activeSubTab);
+    const target = e.target as HTMLElement;
+    const tabButton = target.closest<HTMLButtonElement>('button[role="tab"]');
+    const tabId = tabButton?.id.replace('admin-tab-', '');
+    let currentIndex = tabs.findIndex((t) => t.id === tabId);
+    if (currentIndex === -1) {
+      currentIndex = tabs.findIndex((t) => t.id === activeSubTab);
+    }
     if (currentIndex === -1) return;
 
     if (e.key === 'ArrowRight') {
@@ -116,7 +124,7 @@ export function AdminNav({ activeSubTab, onChangeSubTab, counts }: AdminNavProps
             role="tab"
             type="button"
             aria-selected={active}
-            aria-controls={`admin-panel-${tab.id}`}
+            aria-controls={active ? `admin-panel-${tab.id}` : undefined}
             tabIndex={active ? 0 : -1}
             onClick={() => onChangeSubTab(tab.id)}
             className={cn(
@@ -128,9 +136,9 @@ export function AdminNav({ activeSubTab, onChangeSubTab, counts }: AdminNavProps
           >
             {active && (
               <motion.span
-                layoutId="admin-subtab-pill"
+                layoutId={shouldReduceMotion ? undefined : 'admin-subtab-pill'}
                 className="absolute inset-0 rounded-xl bg-ink"
-                transition={{ type: 'spring', stiffness: 420, damping: 34 }}
+                transition={shouldReduceMotion ? { duration: 0 } : { type: 'spring', stiffness: 420, damping: 34 }}
               />
             )}
             <span className="relative z-10 flex items-center gap-1.5 sm:gap-2">

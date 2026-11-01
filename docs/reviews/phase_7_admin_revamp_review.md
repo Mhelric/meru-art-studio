@@ -1,35 +1,45 @@
-# Phase 7 Audit Review Packet: Artist Admin Experience & Lifecycle Hardening (Revision 2)
+# Phase 7 Audit Review Packet: Artist Admin Experience & Lifecycle Hardening (Revision 5)
 
-**Submitted To:** Gemini Argon (Principal Security & Database Systems Architect)  
+**Submitted To:** Senior Database, Security & Architecture Engineering Audit  
 **System:** Meru Art Studio  
-**Audit Scope:** Phase 7 (Revision 2) — Resolution of Chat Attachment Purge, Arrow-Key Sub-Navigation, Stable Dialog Focus/Input Effects, Financial Ledger Safeguard & Unabridged Code Artifacts  
-**Status:** Verification Ready (14/14 Vitest Tests PASS, 0 TypeScript Errors, 0 Build Warnings)
+**Audit Scope:** Phase 7 (Revision 5) — Verification of RPC Storage Abort Safety, Separation of Payment Verification from Stage Advancement, Atomic Non-Bypassable Cancellation, and Dialog Focus/Lifecycle Isolation  
+**Status:** Verification Ready (16/16 Vitest Tests PASS, 0 TypeScript Errors, 0 Build Warnings)
 
 ---
 
 ## 1. Executive Summary & Verification of Audit Resolutions
 
-Phase 7 (Revision 2) resolves all four architectural, lifecycle, and artifact completeness findings identified in the initial review:
+Revision 5 resolves the final four items identified in the senior architectural review:
 
-1. **Orphaned Chat Attachment Purge (Defect 1A Closed):**
-   * `public.get_commission_storage_paths(p_commission_id)` in `20261102000001_phase_7_admin_lifecycle_and_deletion.sql` now explicitly queries `public.messages` for non-null `attachment_url` values (filtering out external `http`/`blob:` URLs).
-   * In `deleteCommissionInDb()`, `bundle.chat_attachments` are combined with `bundle.references` and purged in parallel from `commission-references`. No orphaned redline drawings, sketches, or chat attachments remain in storage upon commission deletion.
+### 1.1 Path-Collection RPC Abort Safety (`deleteCommissionInDb`) — CLOSED
+* **Defect:** If `get_commission_storage_paths()` errored, the error was merely warned to the console while the database row deletion proceeded, leaving files permanently orphaned with zero `failedStoragePaths` reported.
+* **Resolution:** In `deleteCommissionInDb()`, if `rpcErr` is returned, the purge operation **aborts immediately** before executing the database `DELETE`. An error is returned:
+  `Could not verify linked storage objects before deletion (<message>). Deletion aborted to prevent orphaned files.`
+  The database row and all storage files remain intact and eligible for retry.
 
-2. **Financial Ledger Safeguard (Defect 1B Closed):**
-   * When `order.depositPaid` or `order.finalPaid` is true, `DeleteOrderDialog.tsx` renders a prominent amber alert:
-     > *"Financial Ledger Notice: This order contains verified payment records. Hard-deleting it will permanently purge the associated payment transactions in `public.payments`."*
-   * The artist is required to evaluate this warning and type `"DELETE"` before the purge action unlocks.
+### 1.2 Separation of Payment Verification from Milestone Advancement (`updateCommissionStageInDb`) — CLOSED
+* **Defect:** `updateCommissionStageInDb` was previously forcing `final_paid = true` and `deposit_paid = true` when advancing an order to `lineart_coloring` or `completed`, defeating the database financial gate and faking payment verification.
+* **Resolution:** Removed the forced `final_paid` and `deposit_paid` mutations from `updateCommissionStageInDb()`. Advancing milestone stages now strictly updates `status_stage` and `progress`. Payment verification must occur exclusively through explicit artist review via `toggleCommissionPaymentInDb()`. Completed orders with unverified final balances now properly trigger the financial gate.
 
-3. **WCAG 2.1 AA Arrow-Key Navigation on Roving TabIndex (Defect 3A Closed):**
-   * `AdminNav.tsx` now attaches an `onKeyDown` handler to the `role="tablist"` element supporting `ArrowRight` (next tab with wraparound), `ArrowLeft` (previous tab with wraparound), `Home` (first tab), and `End` (last tab), dynamically updating selection and focusing the target tab button (`document.getElementById(...).focus()`). Keyboard-only users have fluid navigation across all 5 admin sub-tabs.
+### 1.3 Atomic Non-Bypassable Order Cancellation (`archiveOrDeclineCommissionInDb`) — CLOSED
+* **Defect:** `archiveOrDeclineCommissionInDb` previously included `'completed'` in the allowed cancellation stages, creating a loophole where an unpaid completed order could be cancelled and then purged (bypassing the completed-unpaid trigger).
+* **Resolution:**
+  - Removed `'completed'` from the allowed cancellation stages.
+  - `allowedStages` is strictly:
+    * `targetStage === 'declined'` -> `['pending_review']`
+    * `targetStage === 'cancelled'` -> `['awaiting_deposit', 'sketching', 'sketch_approval', 'lineart_coloring']`
+  - Added atomic SQL guard: `.in('status_stage', allowedStages)` on the update query, preventing race conditions if another client or admin modified the stage concurrently. Completed orders can never be cancelled.
 
-4. **Dialog Input State & Focus Trap Stabilization (Defect 4A Closed):**
-   * `DeleteOrderDialog.tsx` and `DeclineReasonModal.tsx` decouple open/mount initialization from the keyboard listener.
-   * `onClose` is captured via `onCloseRef.current = onClose`.
-   * Parent re-renders (such as background realtime query refetches) no longer re-run the mount effect, preventing `confirmInput` from being wiped out while the artist is typing `"DELETE"` and preserving `previouslyFocusedElementRef.current`.
+### 1.4 Dialog Focus and Lifecycle Isolation (`DeleteOrderDialog.tsx`) — CLOSED
+* **Defect:** Having `[isOpen, hasUnpaidCompletedBalance]` in the lifecycle effect caused the effect to re-run whenever a realtime payment update arrived while the dialog was open, wiping out typed `"DELETE"` input and bouncing focus to the trigger button behind the overlay.
+* **Resolution:**
+  - Separated the open/close lifecycle effect (strictly on `[isOpen]`) from focus placement.
+  - Lifecycle effect captures `previouslyFocusedElementRef.current` on open and restores focus strictly when `isOpen` becomes false.
+  - Focus placement runs in a separate effect targeting `inputRef`, `closeBtnRef`, or `modalRef` without resetting typed input or restoring focus on unmount.
 
-5. **Unabridged Code Artifacts (Defect 4 Closed):**
-   * All 16 source files and diffs are presented in Section 4 below without omissions.
+### 1.5 Additional Non-Blocking Quality Refinements — CLOSED
+* **Auto-Navigation Gated on Loading:** In `AdminDashboard.tsx`, auto-navigation to `briefs` waits until `!isLoadingOrders`. Initial auto-navigation evaluates the real asynchronously loaded orders, and will never hijack the screen on subsequent realtime briefs.
+* **Storage Failure Logging:** If any storage objects fail removal, `res.failedStoragePaths` are explicitly logged with `console.error('Failed storage cleanup paths for order:', orderId, res.failedStoragePaths)`.
 
 ---
 
@@ -37,36 +47,80 @@ Phase 7 (Revision 2) resolves all four architectural, lifecycle, and artifact co
 
 | Requirement / Criterion | Status | Verification Detail |
 | :--- | :---: | :--- |
-| **Terminal Deletion Gate** | **PASS** | `BEFORE DELETE` trigger `public.enforce_commission_delete_safety()` rejects active deletion with SQLSTATE `P0001`. RLS policy requires `status_stage IN ('declined', 'cancelled', 'completed')`. |
-| **Storage Object Purge RPC** | **PASS** | `get_commission_storage_paths(uuid)` collects references, WIP previews, 300 DPI masters, payment receipts, and chat attachments. Purged in parallel via `storage.from(b).remove(p)`. |
-| **Two-Tier Lifecycle Taxonomy** | **PASS** | `useSegmentedAdminOrders()` cleanly separates `incomingBriefs` (3), `activePipeline` (in-progress), `pendingPayments`, and `archivedOrders` (terminal). |
-| **Sub-Navigation Semantics** | **PASS** | `AdminNav.tsx` satisfies WCAG 2.1 AA with `role="tablist"`, `role="tab"`, `aria-selected`, `aria-controls`, and `ArrowRight`/`ArrowLeft`/`Home`/`End` roving focus. |
-| **Destructive Purge Guard** | **PASS** | Two-step modal requiring explicit `"DELETE"` typed confirmation, protected by `onCloseRef` and warning on verified financial records. |
-| **Zero-Breaking-Change Build** | **PASS** | `AdminPanel.tsx` re-exports `AdminDashboard`, maintaining Vite chunk splitting (`AdminPanel-DYn1yHZV.js`: 53.39 kB) and `App.tsx` lazy loading. |
-| **Automated Test Suite** | **PASS** | 14/14 Vitest unit tests pass in 2.82s, including dedicated test suite for order segmentation. |
+| **Storage Collection Abort Gate** | **PASS** | `deleteCommissionInDb()` aborts before DB DELETE if RPC fails; prevents silent file orphaning. |
+| **Stage Stepper & Payment Decoupling** | **PASS** | `updateCommissionStageInDb()` updates only stage & progress; payment verification requires explicit artist action. |
+| **Atomic Non-Bypassable Cancel** | **PASS** | Cancellation strictly restricted to active in-progress stages; atomic `.in('status_stage', allowedStages)` guard. |
+| **Dialog Lifecycle & Focus Isolation** | **PASS** | Lifecycle effect strictly on `[isOpen]`; focus placement effect separated; no input reset on realtime state changes. |
+| **Cascade & Migration Bypass** | **PASS** | `public.enforce_commission_delete_safety()` is `SECURITY INVOKER` with `if current_user in ('authenticated', 'anon')`. |
+| **Storage URL Normalization** | **PASS** | Strips `?token=...` query params via `split_part()`; filters external non-storage URLs. |
+| **Safe Auto-Navigation** | **PASS** | Gated on `!isLoadingOrders` and `!userInteractedRef.current`. |
+| **Mathematical Invariant** | **PASS** | Unit tests assert `counts.briefs + counts.active + counts.archived === counts.total` across all 8 stages. |
+| **Automated Test Suite** | **PASS** | 16/16 Vitest unit tests pass in 2.99s. |
+| **Production Build** | **PASS** | `tsc && vite build` completes in 2.00s with 0 errors and 0 warnings. |
 
 ---
 
 ## 3. Automated Test Suite & Build Verification
 
-```
+### 3.1 Vitest Test Suite Output (16/16 PASS)
+```text
+> meru-art-studio@1.0.0 test
 > vitest run
+
  RUN  v5.0.5 C:/Users/mhelric/OneDrive/Desktop/meru-art-studio
 
- ✓ tests/unit.test.ts (14 tests) 14 passed (14)
+ ✓ tests/unit.test.ts (16 tests) 2990ms
+   ✓ HTML Escaping & XSS Sanitization (escapeHtml) > escapes HTML characters correctly
+   ✓ HTML Escaping & XSS Sanitization (escapeHtml) > neutralizes script injection and image error payloads
+   ✓ HTML Escaping & XSS Sanitization (escapeHtml) > handles null, undefined, numbers, and clean strings safely
+   ✓ Dynamic Date Helpers & Formatting > returns valid YYYY-MM-DD local today date
+   ✓ Dynamic Date Helpers & Formatting > calculates future dates with arbitrary positive offsets
+   ✓ Dynamic Date Helpers & Formatting > formats short dates and currencies correctly
+   ✓ TOS Refund Schedule Calculation (getRefundTierInfo) > awards 100% full refund before sketching begins
+   ✓ TOS Refund Schedule Calculation (getRefundTierInfo) > awards 50% refund during sketching with 50/50 split
+   ✓ TOS Refund Schedule Calculation (getRefundTierInfo) > awards 75% refund during sketching with upfront full payment
+   ✓ TOS Refund Schedule Calculation (getRefundTierInfo) > awards 0% refund once lineart and coloring begins
+   ✓ Availability Calendar Slot Calculations (getAvailableSlotsForDate) > respects studio pause and returns 0 slots
+   ✓ Availability Calendar Slot Calculations (getAvailableSlotsForDate) > blocks specific dates in blockedDates set
+   ✓ Availability Calendar Slot Calculations (getAvailableSlotsForDate) > computes remaining slots against target capacity
+   ✓ Admin Order Lifecycle Segmentation (segmentAdminOrders) > correctly partitions incoming briefs from active pipeline and terminal archive
+   ✓ Admin Order Lifecycle Segmentation (segmentAdminOrders) > verifies partition invariant: briefs + active + archived === total across all commission stages
+   ✓ Admin Order Lifecycle Segmentation (segmentAdminOrders) > flags completed orders with unpaid 50/50 balance in pendingPayments
 
  Test Files  1 passed (1)
-      Tests  14 passed (14)
-   Duration  2.82s
+      Tests  16 passed (16)
+   Start at  17:56:53
+   Duration  2.99s (import 78%, transform 19%, tests 2%, worker 1%)
+```
 
+### 3.2 Vite Production Build Output
+```text
+> meru-art-studio@1.0.0 build
 > tsc && vite build
+
+vite v8.3.5 building client environment for production...
+transforming...
 ✓ 2605 modules transformed.
-dist/assets/AdminPanel-DYn1yHZV.js             53.39 kB │ gzip:  11.48 kB
-dist/assets/OrderTracker-Dkw5ENMi.js           52.41 kB │ gzip:  12.40 kB
-dist/assets/index-DFRtDj0I.js                 100.43 kB │ gzip:  31.62 kB
+rendering chunks...
+computing gzip size...
+dist/index.html                                 1.81 kB │ gzip:   0.69 kB
+dist/assets/index-DKvv8FHm.css                 68.00 kB │ gzip:  11.41 kB
+dist/assets/rolldown-runtime-WkwZ5CU-.js        0.59 kB │ gzip:   0.36 kB
+dist/assets/vendor-query-B9tB4Llq.js            2.50 kB │ gzip:   1.19 kB
+dist/assets/Lightbox-Bp7ma_NP.js                6.12 kB │ gzip:   2.17 kB
+dist/assets/realtime-BCSLILOW.js                6.22 kB │ gzip:   2.15 kB
+dist/assets/vendor-supabase-D_1rPncu.js        10.62 kB │ gzip:   4.32 kB
+dist/assets/AvailabilityCalendar-BnBR1Jg1.js   10.79 kB │ gzip:   3.23 kB
+dist/assets/TierModal-BAoIXsux.js              23.71 kB │ gzip:   6.33 kB
+dist/assets/vendor-motion-DYdf6MWt.js          28.37 kB │ gzip:  10.94 kB
+dist/assets/vendor-icons-CnulAtS_.js           32.96 kB │ gzip:  12.66 kB
+dist/assets/OrderTracker-kJqccUUE.js           52.41 kB │ gzip:  12.40 kB
+dist/assets/AdminPanel-Ce8Aquyr.js             55.72 kB │ gzip:  12.15 kB
+dist/assets/index-BjKprGXj.js                 102.30 kB │ gzip:  32.13 kB
 dist/assets/vendor-react-Do5m6qWo.js          207.04 kB │ gzip:  64.49 kB
 dist/assets/vendor-misc-DbncZmyQ.js           375.87 kB │ gzip: 105.43 kB
-✓ built in 1.69s (0 errors, 0 warnings)
+
+✓ built in 2.00s
 ```
 
 ---
@@ -77,31 +131,38 @@ dist/assets/vendor-misc-DbncZmyQ.js           375.87 kB │ gzip: 105.43 kB
 
 ```sql
 -- ============================================================================
--- Meru Art Studio — Phase 7: Admin Order Lifecycle, Decline Reason & Safe Purge (Revision 2)
+-- Meru Art Studio — Phase 7: Admin Order Lifecycle, Decline Reason & Safe Purge (Revision 4)
 -- Addresses:
---   1. Safe deletion trigger: prevent deleting active in-progress commissions
---   2. Tighten RLS delete policy on commissions to require terminal status
+--   1. Safe deletion trigger: enforce terminal status & unpaid balance checks for client roles
+--   2. Security invoker trigger: bypasses safely for postgres, supabase_admin, migrations, and GoTrue cascades
 --   3. Storage RLS DELETE policies for Artist Admin across all 3 private buckets
 --   4. Helper RPC: public.get_commission_storage_paths(p_commission_id)
---      including references, WIP previews/masters, payment receipts, and chat attachments
+--      Partitioned storage collection with token/query stripping and external URL filtering
 -- ============================================================================
 
 -- ----------------------------------------------------------------------------
--- 1. Enforce Safe Deletion Gate (Terminal States Only)
+-- 1. Enforce Safe Deletion Gate (Terminal States & Paid Safeguard)
 -- ----------------------------------------------------------------------------
 create or replace function public.enforce_commission_delete_safety()
 returns trigger
 language plpgsql
-security definer
-set search_path = public
+security invoker
+set search_path = public, pg_temp
 as $$
 begin
-  if not public.is_artist_admin() then
-    raise exception 'Unauthorized: Only the Artist Admin may purge commission records.';
-  end if;
+  -- Only enforce deletion safeguards for client-facing roles (authenticated / anon).
+  -- Administrative maintenance, SQL editor queries, migrations, and GoTrue cascades
+  -- run as postgres / supabase_admin / service_role and bypass this trigger automatically.
+  if current_user in ('authenticated', 'anon') then
+    -- 1. Must be in terminal stage
+    if old.status_stage not in ('declined', 'cancelled', 'completed') then
+      raise exception 'Cannot delete an active commission (current stage: %). Move the order to declined, cancelled, or completed first.', old.status_stage;
+    end if;
 
-  if old.status_stage not in ('declined', 'cancelled', 'completed') then
-    raise exception 'Cannot delete an active commission (current stage: %). Move the order to declined, cancelled, or completed first.', old.status_stage;
+    -- 2. Safeguard: Block deleting completed commissions that still have an unpaid 50/50 balance
+    if old.status_stage = 'completed' and old.payment_split = '50_50' and not old.final_paid then
+      raise exception 'Cannot delete a completed commission with an outstanding unpaid balance. Verify payment first.';
+    end if;
   end if;
 
   return old;
@@ -114,7 +175,7 @@ create trigger trg_enforce_commission_delete_safety
   for each row
   execute function public.enforce_commission_delete_safety();
 
--- Tighten RLS delete policy to also require terminal status_stage
+-- Tighten RLS delete policy to require terminal status_stage and artist admin role
 drop policy if exists "commissions_artist_delete" on public.commissions;
 create policy "commissions_artist_delete"
   on public.commissions for delete
@@ -161,67 +222,139 @@ create or replace function public.get_commission_storage_paths(p_commission_id u
 returns jsonb
 language plpgsql
 security definer
-set search_path = public
+set search_path = public, pg_temp
 as $$
 declare
   v_refs jsonb;
   v_wip_previews jsonb;
   v_wip_masters jsonb;
   v_receipts jsonb;
-  v_chat_attachments jsonb;
+  v_chat_refs jsonb;
+  v_chat_receipts jsonb;
 begin
   if not public.is_artist_admin() then
     raise exception 'Unauthorized';
   end if;
 
   -- 1. Reference paths from commissions.reference_urls (bucket: commission-references)
-  select coalesce(jsonb_agg(elem->>'storagePath'), '[]'::jsonb)
+  -- Strips tokens (?token=...) and domain prefixes; excludes external URLs (http% without bucket) and blob: URLs
+  select coalesce(jsonb_agg(
+    case
+      when (elem->>'storagePath') ~ 'commission-references/' then
+        split_part(regexp_replace(elem->>'storagePath', '^.*?commission-references/', ''), '?', 1)
+      when (elem->>'storagePath') not like 'http%' and (elem->>'storagePath') not like 'blob:%' then
+        split_part(elem->>'storagePath', '?', 1)
+      else null
+    end
+  ) filter (
+    where elem->>'storagePath' is not null
+      and (
+        (elem->>'storagePath') ~ 'commission-references/'
+        or ((elem->>'storagePath') not like 'http%' and (elem->>'storagePath') not like 'blob:%')
+      )
+  ), '[]'::jsonb)
   into v_refs
   from public.commissions c,
        jsonb_array_elements(coalesce(c.reference_urls, '[]'::jsonb)) as elem
-  where c.id = p_commission_id
-    and elem->>'storagePath' is not null;
+  where c.id = p_commission_id;
 
   -- 2. WIP preview & master paths (bucket: commission-wips)
   select
-    coalesce(jsonb_agg(preview_path) filter (where preview_path is not null), '[]'::jsonb),
-    coalesce(jsonb_agg(master_path) filter (where master_path is not null), '[]'::jsonb)
+    coalesce(jsonb_agg(split_part(preview_path, '?', 1)) filter (where preview_path is not null), '[]'::jsonb),
+    coalesce(jsonb_agg(split_part(master_path, '?', 1)) filter (where master_path is not null), '[]'::jsonb)
   into v_wip_previews, v_wip_masters
   from public.wip_uploads
   where commission_id = p_commission_id;
 
-  -- 3. Payment receipt paths (bucket: commission-receipts)
-  select coalesce(jsonb_agg(receipt_path) filter (where receipt_path is not null), '[]'::jsonb)
+  -- 3. Payment receipt paths from payments table (bucket: commission-receipts)
+  select coalesce(jsonb_agg(split_part(receipt_path, '?', 1)) filter (where receipt_path is not null), '[]'::jsonb)
   into v_receipts
   from public.payments
   where commission_id = p_commission_id;
 
-  -- 4. Chat attachments from messages (bucket: commission-references)
-  select coalesce(jsonb_agg(attachment_url) filter (
+  -- 4. Chat attachments partitioned by kind:
+  -- 4A: Chat receipts (bucket: commission-receipts)
+  select coalesce(jsonb_agg(
+    case
+      when attachment_url ~ 'commission-receipts/' then
+        split_part(regexp_replace(attachment_url, '^.*?commission-receipts/', ''), '?', 1)
+      when attachment_url not like 'http%' and attachment_url not like 'blob:%' then
+        split_part(attachment_url, '?', 1)
+      else null
+    end
+  ) filter (
     where attachment_url is not null
-      and attachment_url not like 'http%'
-      and attachment_url not like 'blob:%'
+      and attachment_kind = 'receipt'
+      and (
+        attachment_url ~ 'commission-receipts/'
+        or (attachment_url not like 'http%' and attachment_url not like 'blob:%')
+      )
   ), '[]'::jsonb)
-  into v_chat_attachments
+  into v_chat_receipts
+  from public.messages
+  where commission_id = p_commission_id;
+
+  -- 4B: Chat general reference/sketch attachments (bucket: commission-references)
+  select coalesce(jsonb_agg(
+    case
+      when attachment_url ~ 'commission-references/' then
+        split_part(regexp_replace(attachment_url, '^.*?commission-references/', ''), '?', 1)
+      when attachment_url not like 'http%' and attachment_url not like 'blob:%' then
+        split_part(attachment_url, '?', 1)
+      else null
+    end
+  ) filter (
+    where attachment_url is not null
+      and (attachment_kind is null or attachment_kind != 'receipt')
+      and (
+        attachment_url ~ 'commission-references/'
+        or (attachment_url not like 'http%' and attachment_url not like 'blob:%')
+      )
+  ), '[]'::jsonb)
+  into v_chat_refs
   from public.messages
   where commission_id = p_commission_id;
 
   return jsonb_build_object(
-    'references', v_refs,
+    'references', v_refs || v_chat_refs,
     'wip_previews', v_wip_previews,
     'wip_masters', v_wip_masters,
-    'receipts', v_receipts,
-    'chat_attachments', v_chat_attachments
+    'receipts', v_receipts || v_chat_receipts
   );
 end;
 $$;
+
+revoke execute on function public.get_commission_storage_paths(uuid) from public;
+grant execute on function public.get_commission_storage_paths(uuid) to authenticated;
 ```
 
-### 4.2 Data Layer Additions (`src/lib/supabase.ts`)
+---
 
-```ts
+### 4.2 Data Layer Operations (`src/lib/supabase.ts`)
+
+```typescript
+/** Update commission status stage in Supabase (Admin action). */
+export async function updateCommissionStageInDb(
+  commissionId: string,
+  stage: CommissionStage,
+  progress?: number,
+): Promise<{ success: boolean; error: string | null }> {
+  if (!supabase) return { success: false, error: 'Supabase not connected' };
+
+  // Only update the milestone stage and progress.
+  // Never forcibly overwrite deposit_paid or final_paid here; payment flags must only be
+  // modified through explicit payment verification (toggleCommissionPaymentInDb).
+  const updates: Record<string, unknown> = { status_stage: stage };
+  if (progress !== undefined) updates.progress = progress;
+
+  const { error } = await supabase.from('commissions').update(updates).eq('id', commissionId);
+  return { success: !error, error: error?.message ?? null };
+}
+
+/** Decline a commission in Supabase (Admin action). */
 /**
- * Decline or cancel a commission with an optional reason logged to commission_events / messages.
+ * Decline or cancel a commission with an optional reason logged to order chat.
+ * Strictly guards against declining in-progress commissions mid-production without formal cancellation.
  */
 export async function archiveOrDeclineCommissionInDb(
   commissionId: string,
@@ -230,23 +363,54 @@ export async function archiveOrDeclineCommissionInDb(
 ): Promise<{ success: boolean; error: string | null }> {
   if (!supabase) return { success: false, error: 'Supabase not connected' };
 
+  // Fetch current stage to validate transition
+  const { data: currentOrder, error: fetchErr } = await supabase
+    .from('commissions')
+    .select('id, status_stage')
+    .eq('id', commissionId)
+    .maybeSingle();
+
+  if (fetchErr || !currentOrder) {
+    return { success: false, error: fetchErr?.message ?? 'Commission not found' };
+  }
+
+  // Allowed source stages:
+  // - 'declined' is ONLY permitted from 'pending_review'
+  // - 'cancelled' is ONLY permitted from active in-progress stages (completed orders cannot be cancelled)
+  const allowedStages =
+    targetStage === 'declined'
+      ? ['pending_review']
+      : ['awaiting_deposit', 'sketching', 'sketch_approval', 'lineart_coloring'];
+
+  if (!allowedStages.includes(currentOrder.status_stage)) {
+    return {
+      success: false,
+      error: `Cannot ${targetStage} order in stage "${currentOrder.status_stage}". Allowed source stages: ${allowedStages.join(', ')}.`,
+    };
+  }
+
+  // Execute stage update with atomic status_stage guard to prevent concurrent race conditions
   const { data, error } = await supabase
     .from('commissions')
     .update({ status_stage: targetStage, progress: 0 })
     .eq('id', commissionId)
+    .in('status_stage', allowedStages)
     .select('id')
-    .single();
+    .maybeSingle();
 
   if (error || !data) {
     return { success: false, error: error?.message ?? `Failed to mark order as ${targetStage}` };
   }
 
   if (reason && reason.trim()) {
-    await sendCommissionMessageInDb(
+    const msgRes = await sendCommissionMessageInDb(
       commissionId,
       `[${targetStage.toUpperCase()} Notice]: ${reason.trim()}`,
       { attachmentKind: 'other' },
     );
+    if (msgRes.error) {
+      console.warn('Decline reason message notice could not be delivered:', msgRes.error);
+    }
   }
 
   return { success: true, error: null };
@@ -260,13 +424,33 @@ export async function declineCommissionInDb(
   return archiveOrDeclineCommissionInDb(commissionId, 'declined', reason);
 }
 
+/** Cancel an active commission in Supabase (Admin action). */
+export async function cancelCommissionInDb(
+  commissionId: string,
+  reason?: string,
+): Promise<{ success: boolean; error: string | null }> {
+  return archiveOrDeclineCommissionInDb(commissionId, 'cancelled', reason);
+}
+
+export interface DeleteCommissionResult {
+  success: boolean;
+  error: string | null;
+  failedStoragePaths?: string[];
+}
+
 /**
  * Permanently purge a terminal commission ('declined', 'cancelled', 'completed')
  * along with its associated private storage objects across all 3 studio buckets.
+ *
+ * Safe Order of Operations:
+ * 1. Collect storage paths before deletion.
+ * 2. Execute guarded hard DELETE on PostgreSQL first.
+ *    (If trigger or RLS rejects, the database operation aborts and no storage files are removed).
+ * 3. Only upon confirmed database row deletion, remove storage blobs and inspect API errors.
  */
 export async function deleteCommissionInDb(
   commissionId: string,
-): Promise<{ success: boolean; error: string | null }> {
+): Promise<DeleteCommissionResult> {
   if (!supabase) return { success: false, error: 'Supabase not connected' };
 
   try {
@@ -276,66 +460,127 @@ export async function deleteCommissionInDb(
       { p_commission_id: commissionId },
     );
 
-    if (!rpcErr && pathBundle) {
-      const bundle = pathBundle as {
-        references?: string[];
-        wip_previews?: string[];
-        wip_masters?: string[];
-        receipts?: string[];
-        chat_attachments?: string[];
+    if (rpcErr) {
+      console.error('Failed to collect commission storage paths via RPC:', rpcErr.message);
+      return {
+        success: false,
+        error: `Could not verify linked storage objects before deletion (${rpcErr.message}). Deletion aborted to prevent orphaned files.`,
       };
-      const refPaths: string[] = [
-        ...(Array.isArray(bundle.references) ? bundle.references : []),
-        ...(Array.isArray(bundle.chat_attachments) ? bundle.chat_attachments : []),
-      ];
-      const wipPaths: string[] = [
-        ...(Array.isArray(bundle.wip_previews) ? bundle.wip_previews : []),
-        ...(Array.isArray(bundle.wip_masters) ? bundle.wip_masters : []),
-      ];
-      const receiptPaths: string[] = Array.isArray(bundle.receipts) ? bundle.receipts : [];
-
-      await Promise.allSettled([
-        refPaths.length > 0
-          ? supabase.storage.from('commission-references').remove(refPaths)
-          : Promise.resolve(),
-        wipPaths.length > 0
-          ? supabase.storage.from('commission-wips').remove(wipPaths)
-          : Promise.resolve(),
-        receiptPaths.length > 0
-          ? supabase.storage.from('commission-receipts').remove(receiptPaths)
-          : Promise.resolve(),
-      ]);
     }
 
-    // Step 2: Execute guarded hard DELETE on public.commissions (cascades to child tables)
+    // Step 2: Execute guarded hard DELETE on public.commissions FIRST
     const { data: deletedRow, error: deleteErr } = await supabase
       .from('commissions')
       .delete()
       .eq('id', commissionId)
       .in('status_stage', ['declined', 'cancelled', 'completed'])
       .select('id')
-      .single();
+      .maybeSingle();
 
     if (deleteErr || !deletedRow) {
       return {
         success: false,
         error:
           deleteErr?.message ??
-          'Order could not be deleted. Ensure the order is in Declined, Cancelled, or Completed state.',
+          'Order could not be deleted. Ensure the order is in Declined, Cancelled, or Completed state with zero outstanding unpaid balance.',
       };
     }
 
-    return { success: true, error: null };
+    // Step 3: Database row deletion succeeded; now purge storage objects
+    const failedStoragePaths: string[] = [];
+    if (pathBundle) {
+      const bundle = pathBundle as {
+        references?: string[];
+        wip_previews?: string[];
+        wip_masters?: string[];
+        receipts?: string[];
+      };
+      const refPaths: string[] = Array.isArray(bundle.references) ? bundle.references : [];
+      const wipPaths: string[] = [
+        ...(Array.isArray(bundle.wip_previews) ? bundle.wip_previews : []),
+        ...(Array.isArray(bundle.wip_masters) ? bundle.wip_masters : []),
+      ];
+      const receiptPaths: string[] = Array.isArray(bundle.receipts) ? bundle.receipts : [];
+
+      const cleanupResults = await Promise.allSettled([
+        refPaths.length > 0
+          ? supabase.storage.from('commission-references').remove(refPaths)
+          : Promise.resolve({ data: [], error: null }),
+        wipPaths.length > 0
+          ? supabase.storage.from('commission-wips').remove(wipPaths)
+          : Promise.resolve({ data: [], error: null }),
+        receiptPaths.length > 0
+          ? supabase.storage.from('commission-receipts').remove(receiptPaths)
+          : Promise.resolve({ data: [], error: null }),
+      ]);
+
+      const bucketPathArrays = [refPaths, wipPaths, receiptPaths];
+      cleanupResults.forEach((res, idx) => {
+        if (res.status === 'rejected') {
+          console.warn('Storage purge error:', res.reason);
+          failedStoragePaths.push(...bucketPathArrays[idx]);
+        } else if (res.value?.error) {
+          console.warn('Storage removal API error:', res.value.error.message);
+          failedStoragePaths.push(...bucketPathArrays[idx]);
+        }
+      });
+    }
+
+    return {
+      success: true,
+      error: null,
+      failedStoragePaths: failedStoragePaths.length > 0 ? failedStoragePaths : undefined,
+    };
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Unexpected error during commission purge';
     return { success: false, error: message };
   }
 }
+
+
+
+/** Toggle payment verified flag in Supabase and reconcile payments audit trail (Admin action). */
+export async function toggleCommissionPaymentInDb(
+  commissionId: string,
+  field: 'deposit_paid' | 'final_paid',
+  value: boolean,
+  currentStage?: CommissionStage,
+): Promise<{ success: boolean; error: string | null }> {
+  if (!supabase) return { success: false, error: 'Supabase not connected' };
+
+  const updates: Record<string, unknown> = { [field]: value };
+  if (field === 'deposit_paid' && value && currentStage === 'awaiting_deposit') {
+    updates.status_stage = 'sketching';
+    updates.progress = 42;
+  } else if (field === 'final_paid' && value && currentStage === 'sketch_approval') {
+    updates.status_stage = 'lineart_coloring';
+    updates.progress = 85;
+  }
+
+  // 1. Update commission row
+  const { error: commError } = await supabase.from('commissions').update(updates).eq('id', commissionId);
+  if (commError) return { success: false, error: commError.message };
+
+  // 2. Reconcile payments audit record if verifying
+  if (value) {
+    const paymentKinds = field === 'deposit_paid' ? ['deposit', 'full'] : ['final', 'full'];
+    await supabase
+      .from('payments')
+      .update({ status: 'verified', updated_at: new Date().toISOString() })
+      .eq('commission_id', commissionId)
+      .in('kind', paymentKinds)
+      .eq('status', 'submitted');
+  }
+
+  return { success: true, error: null };
+}
 ```
+
+---
 
 ### 4.3 Data Layer Mutations (`src/lib/queries.ts`)
 
-```ts
+```typescript
 export function useDeclineCommissionMutation() {
   const queryClient = useQueryClient();
 
@@ -367,7 +612,7 @@ export function useDeleteCommissionMutation() {
     mutationFn: async (commissionId: string) => {
       const res = await deleteCommissionInDb(commissionId);
       if (!res.success) throw new Error(res.error ?? 'Failed to delete commission');
-      return commissionId;
+      return { commissionId, failedStoragePaths: res.failedStoragePaths };
     },
     onMutate: async (deletedId) => {
       await queryClient.cancelQueries({ queryKey: QUERY_KEYS.commissions });
@@ -392,20 +637,192 @@ export function useDeleteCommissionMutation() {
     },
   });
 }
+
+export function useTogglePaymentFlagMutation() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({
+      commissionId,
+      field,
+      value,
+      currentStage,
+    }: {
+      commissionId: string;
+      field: 'deposit_paid' | 'final_paid';
+      value: boolean;
+      currentStage?: CommissionStage;
+    }) => {
+      return toggleCommissionPaymentInDb(commissionId, field, value, currentStage);
+    },
+    onSuccess: (_, { commissionId }) => {
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.commissions });
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.payments(commissionId) });
+    },
+  });
+}
+
+export function useSubmitPaymentReceiptMutation() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({
+      commissionId,
+      kind,
+      amount,
+      currency,
+      receiptPath,
+    }: {
+      commissionId: string;
+      kind: 'deposit' | 'final' | 'full';
+      amount: number;
+      currency: any;
+      receiptPath?: string;
+    }) => {
+      return submitPaymentReceiptInDb(commissionId, kind, amount, currency, receiptPath);
+    },
+    onSuccess: (_, { commissionId }) => {
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.commissions });
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.payments(commissionId) });
+    },
+  });
+}
+
+export function useUpdateScheduleMutation() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({
+      commissionId,
+      startDate,
+      estEndDate,
+    }: {
+      commissionId: string;
+      startDate: string;
+      estEndDate: string;
+    }) => {
+      return updateCommissionScheduleInDb(commissionId, startDate, estEndDate);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.commissions });
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.publicStudioData });
+    },
+  });
+}
+
+export function useSendMessageMutation() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({
+      commissionId,
+      body,
+      opts,
+    }: {
+      commissionId: string;
+      body: string;
+      opts?: { attachmentUrl?: string; attachmentKind?: any };
+    }) => {
+      return sendCommissionMessageInDb(commissionId, body, opts);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.commissions });
+    },
+  });
+}
+
+export function useUpdateStudioSettingsMutation() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (patch: Partial<StudioSettingsRow>) => {
+      return updateStudioSettingsInDb(patch);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.publicStudioData });
+    },
+  });
+}
+
+
+export function useUpdateCommissionBriefMutation() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({
+      commissionId,
+      patch,
+    }: {
+      commissionId: string;
+      patch: { characterName?: string; poseAndVibe?: string; backgroundNotes?: string };
+    }) => {
+      return updateCommissionBriefInDb(commissionId, patch);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.commissions });
+    },
+  });
+}
+
+export function useRequestCancellationMutation() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({
+      commissionId,
+      reason,
+    }: {
+      commissionId: string;
+      reason: string;
+    }) => {
+      return requestCommissionCancellationInDb(commissionId, reason);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.commissions });
+    },
+  });
+}
 ```
 
-### 4.4 Context Wiring (`src/context/StudioContext.tsx` additions)
+---
 
-```ts
-  const deleteMut = useDeleteCommissionMutation();
+### 4.4 Context Wiring (`src/context/StudioContext.tsx` Lifecycle Actions)
+
+```typescript
+const setOrderStage = useCallback(
+    (orderId: string, stage: CommissionStage) => {
+      const meta = STAGE_STEPS.find((s) => s.id === stage);
+      const progress = meta?.progress;
+      const target = submittedOrders.find((o) => o.id === orderId);
+      const orderLabel = target?.orderCode || orderId.slice(0, 8);
+
+      if (isSupabaseConfigured && orderId !== DEMO_SHOWCASE_ORDER.id) {
+        updateStageMut.mutate(
+          { commissionId: orderId, stage, progress },
+          {
+            onSuccess: () => showToast(`Order #${orderLabel} moved to ${meta?.shortLabel ?? stage}.`),
+            onError: (err) => showToast(err.message),
+          },
+        );
+      } else {
+        setLocalOrders((prev) =>
+          prev.map((o) => (o.id === orderId ? { ...o, stage, progress: progress ?? o.progress } : o)),
+        );
+        showToast(`Order #${orderLabel} moved to ${meta?.shortLabel ?? stage}.`);
+      }
+    },
+    [isSupabaseConfigured, showToast, submittedOrders, updateStageMut],
+  );
 
   const declineOrder = useCallback(
     (orderId: string, reason?: string) => {
+      const target = submittedOrders.find((o) => o.id === orderId);
+      const orderLabel = target?.orderCode || orderId.slice(0, 8);
       if (isSupabaseConfigured && orderId !== DEMO_SHOWCASE_ORDER.id) {
         declineMut.mutate(
-          { commissionId: orderId, reason },
+          { commissionId: orderId, reason, targetStage: 'declined' },
           {
-            onSuccess: () => showToast(`Order #${orderId} declined and moved to Archive.`),
+            onSuccess: () => showToast(`Order #${orderLabel} declined and moved to Archive.`),
             onError: (err) => showToast(err.message),
           },
         );
@@ -413,18 +830,49 @@ export function useDeleteCommissionMutation() {
         setLocalOrders((prev) =>
           prev.map((o) => (o.id === orderId ? { ...o, declined: true, stage: 'declined' } : o)),
         );
-        showToast(`Order #${orderId} moved to Archive.`);
+        showToast(`Order #${orderLabel} moved to Archive.`);
       }
     },
-    [declineMut, showToast],
+    [declineMut, isSupabaseConfigured, showToast, submittedOrders],
+  );
+
+  const cancelOrder = useCallback(
+    (orderId: string, reason?: string) => {
+      const target = submittedOrders.find((o) => o.id === orderId);
+      const orderLabel = target?.orderCode || orderId.slice(0, 8);
+      if (isSupabaseConfigured && orderId !== DEMO_SHOWCASE_ORDER.id) {
+        declineMut.mutate(
+          { commissionId: orderId, reason, targetStage: 'cancelled' },
+          {
+            onSuccess: () => showToast(`Order #${orderLabel} cancelled and moved to Archive.`),
+            onError: (err) => showToast(err.message),
+          },
+        );
+      } else {
+        setLocalOrders((prev) =>
+          prev.map((o) => (o.id === orderId ? { ...o, stage: 'cancelled' } : o)),
+        );
+        showToast(`Order #${orderLabel} cancelled and moved to Archive.`);
+      }
+    },
+    [declineMut, isSupabaseConfigured, showToast, submittedOrders],
   );
 
   const deleteOrder = useCallback(
     async (orderId: string): Promise<boolean> => {
+      const target = submittedOrders.find((o) => o.id === orderId);
+      const orderLabel = target?.orderCode || orderId.slice(0, 8);
       if (isSupabaseConfigured && orderId !== DEMO_SHOWCASE_ORDER.id) {
         try {
-          await deleteMut.mutateAsync(orderId);
-          showToast(`Order #${orderId} permanently deleted.`);
+          const res = await deleteMut.mutateAsync(orderId);
+          if (res.failedStoragePaths && res.failedStoragePaths.length > 0) {
+            console.error('Failed storage cleanup paths for order:', orderId, res.failedStoragePaths);
+            showToast(
+              `Order #${orderLabel} deleted from database, but ${res.failedStoragePaths.length} storage files failed to remove.`,
+            );
+          } else {
+            showToast(`Order #${orderLabel} permanently purged.`);
+          }
           return true;
         } catch (err: unknown) {
           const msg = err instanceof Error ? err.message : 'Failed to delete order';
@@ -433,17 +881,19 @@ export function useDeleteCommissionMutation() {
         }
       } else {
         setLocalOrders((prev) => prev.filter((o) => o.id !== orderId));
-        showToast(`Order #${orderId} removed.`);
+        showToast(`Order #${orderLabel} removed.`);
         return true;
       }
     },
-    [deleteMut, showToast],
+    [deleteMut, isSupabaseConfigured, showToast, submittedOrders],
   );
 ```
 
+---
+
 ### 4.5 `src/components/admin/useSegmentedAdminOrders.ts`
 
-```ts
+```typescript
 import { useMemo } from 'react';
 import type { SubmittedOrder } from '@/types';
 
@@ -461,6 +911,13 @@ export interface SegmentedAdminOrders {
   };
 }
 
+/**
+ * Pure segmentation function categorizing commissions into administrative lifecycles:
+ * - incomingBriefs: status_stage === 'pending_review'
+ * - activePipeline: in progress ('awaiting_deposit', 'sketching', 'sketch_approval', 'lineart_coloring')
+ * - pendingPayments: awaiting deposit or final payment verification
+ * - archivedOrders: terminal states ('declined', 'cancelled', 'completed')
+ */
 export function segmentAdminOrders(orders: SubmittedOrder[]): SegmentedAdminOrders {
   const incomingBriefs = orders.filter((o) => o.stage === 'pending_review');
 
@@ -499,17 +956,28 @@ export function segmentAdminOrders(orders: SubmittedOrder[]): SegmentedAdminOrde
   };
 }
 
+/**
+ * React hook wrapper around segmentAdminOrders.
+ */
 export function useSegmentedAdminOrders(orders: SubmittedOrder[]): SegmentedAdminOrders {
   return useMemo(() => segmentAdminOrders(orders), [orders]);
 }
 ```
 
+---
+
 ### 4.6 `src/components/admin/AdminNav.tsx`
 
-```tsx
+```typescript
 import { type KeyboardEvent } from 'react';
-import { motion } from 'framer-motion';
-import { FileText, Layers, CreditCard, Sliders, Archive } from 'lucide-react';
+import { motion, useReducedMotion } from 'framer-motion';
+import {
+  FileText,
+  Layers,
+  CreditCard,
+  Sliders,
+  Archive,
+} from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 export type AdminSubTab = 'pipeline' | 'briefs' | 'payments' | 'settings' | 'archive';
@@ -535,6 +1003,8 @@ interface AdminNavProps {
 }
 
 export function AdminNav({ activeSubTab, onChangeSubTab, counts }: AdminNavProps) {
+  const shouldReduceMotion = useReducedMotion();
+
   const tabs: NavItem[] = [
     {
       id: 'pipeline',
@@ -550,7 +1020,7 @@ export function AdminNav({ activeSubTab, onChangeSubTab, counts }: AdminNavProps
       short: 'Briefs',
       icon: FileText,
       badge: counts.briefs,
-      badgeColor: 'bg-mustard text-ink font-bold animate-pulse',
+      badgeColor: 'bg-mustard text-ink font-bold animate-pulse motion-reduce:animate-none',
     },
     {
       id: 'payments',
@@ -577,7 +1047,13 @@ export function AdminNav({ activeSubTab, onChangeSubTab, counts }: AdminNavProps
   ];
 
   const handleKeyDown = (e: KeyboardEvent<HTMLElement>) => {
-    const currentIndex = tabs.findIndex((t) => t.id === activeSubTab);
+    const target = e.target as HTMLElement;
+    const tabButton = target.closest<HTMLButtonElement>('button[role="tab"]');
+    const tabId = tabButton?.id.replace('admin-tab-', '');
+    let currentIndex = tabs.findIndex((t) => t.id === tabId);
+    if (currentIndex === -1) {
+      currentIndex = tabs.findIndex((t) => t.id === activeSubTab);
+    }
     if (currentIndex === -1) return;
 
     if (e.key === 'ArrowRight') {
@@ -619,7 +1095,7 @@ export function AdminNav({ activeSubTab, onChangeSubTab, counts }: AdminNavProps
             role="tab"
             type="button"
             aria-selected={active}
-            aria-controls={`admin-panel-${tab.id}`}
+            aria-controls={active ? `admin-panel-${tab.id}` : undefined}
             tabIndex={active ? 0 : -1}
             onClick={() => onChangeSubTab(tab.id)}
             className={cn(
@@ -631,9 +1107,9 @@ export function AdminNav({ activeSubTab, onChangeSubTab, counts }: AdminNavProps
           >
             {active && (
               <motion.span
-                layoutId="admin-subtab-pill"
+                layoutId={shouldReduceMotion ? undefined : 'admin-subtab-pill'}
                 className="absolute inset-0 rounded-xl bg-ink"
-                transition={{ type: 'spring', stiffness: 420, damping: 34 }}
+                transition={shouldReduceMotion ? { duration: 0 } : { type: 'spring', stiffness: 420, damping: 34 }}
               />
             )}
             <span className="relative z-10 flex items-center gap-1.5 sm:gap-2">
@@ -659,12 +1135,14 @@ export function AdminNav({ activeSubTab, onChangeSubTab, counts }: AdminNavProps
 }
 ```
 
+---
+
 ### 4.7 `src/components/admin/dialogs/DeleteOrderDialog.tsx`
 
-```tsx
+```typescript
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, Trash2, AlertOctagon, Loader2, AlertTriangle } from 'lucide-react';
+import { X, Trash2, AlertOctagon, Loader2, AlertTriangle, Ban } from 'lucide-react';
 import type { SubmittedOrder } from '@/types';
 import { getTier, formatUsd } from '@/lib/utils';
 
@@ -676,6 +1154,9 @@ interface DeleteOrderDialogProps {
   onConfirmDelete: (orderId: string) => Promise<boolean>;
 }
 
+const FOCUSABLE_SELECTOR =
+  'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"]):not([disabled])';
+
 export function DeleteOrderDialog({
   order,
   isOpen,
@@ -685,23 +1166,30 @@ export function DeleteOrderDialog({
 }: DeleteOrderDialogProps) {
   const [confirmInput, setConfirmInput] = useState('');
   const onCloseRef = useRef(onClose);
-  onCloseRef.current = onClose;
+
+  // Update ref in effect to comply with strict React linting
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  });
 
   const previouslyFocusedElementRef = useRef<HTMLElement | null>(null);
   const modalRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const closeBtnRef = useRef<HTMLButtonElement>(null);
 
-  // 1. Reset input and capture focus strictly on isOpen transitions
+  const isConfirmed = confirmInput.trim().toUpperCase() === 'DELETE';
+  const hasPaidRecords = Boolean(order?.depositPaid || order?.finalPaid);
+  const hasUnpaidCompletedBalance = Boolean(
+    order?.stage === 'completed' && order?.paymentSplit === '50_50' && !order?.finalPaid,
+  );
+
+  // 1. Capture previously focused element on open and restore on close (strictly dependent on isOpen)
   useEffect(() => {
     if (isOpen) {
       previouslyFocusedElementRef.current = document.activeElement as HTMLElement;
       setConfirmInput('');
-      const timer = window.setTimeout(() => {
-        inputRef.current?.focus();
-      }, 50);
 
       return () => {
-        window.clearTimeout(timer);
         previouslyFocusedElementRef.current?.focus();
       };
     } else {
@@ -709,7 +1197,24 @@ export function DeleteOrderDialog({
     }
   }, [isOpen]);
 
-  // 2. Keyboard navigation uses onCloseRef to prevent re-render resets
+  // 2. Separate focus placement effect (does NOT clear typed confirmation or restore background focus)
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const timer = window.setTimeout(() => {
+      if (!hasUnpaidCompletedBalance && inputRef.current) {
+        inputRef.current.focus();
+      } else if (closeBtnRef.current) {
+        closeBtnRef.current.focus();
+      } else if (modalRef.current) {
+        modalRef.current.focus();
+      }
+    }, 50);
+
+    return () => window.clearTimeout(timer);
+  }, [isOpen, hasUnpaidCompletedBalance]);
+
+  // 2. Keyboard focus trap (ignoring disabled elements so Tab wraps properly)
   useEffect(() => {
     if (!isOpen) return;
 
@@ -720,10 +1225,12 @@ export function DeleteOrderDialog({
       }
 
       if (e.key === 'Tab' && modalRef.current) {
-        const focusable = modalRef.current.querySelectorAll<HTMLElement>(
-          'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])',
-        );
-        if (focusable.length === 0) return;
+        const focusable = modalRef.current.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR);
+        if (focusable.length === 0) {
+          e.preventDefault();
+          modalRef.current?.focus();
+          return;
+        }
         const first = focusable[0];
         const last = focusable[focusable.length - 1];
 
@@ -741,14 +1248,9 @@ export function DeleteOrderDialog({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isOpen, isDeleting]);
 
-  if (!isOpen || !order) return null;
-
-  const isConfirmed = confirmInput.trim().toUpperCase() === 'DELETE';
-  const hasPaidRecords = Boolean(order.depositPaid || order.finalPaid);
-
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
-    if (!isConfirmed || isDeleting) return;
+    if (!order || !isConfirmed || isDeleting || hasUnpaidCompletedBalance) return;
     const ok = await onConfirmDelete(order.id);
     if (ok) {
       onClose();
@@ -757,133 +1259,158 @@ export function DeleteOrderDialog({
 
   return (
     <AnimatePresence>
-      <div
-        className="fixed inset-0 z-50 flex items-center justify-center p-4"
-        role="alertdialog"
-        aria-modal="true"
-        aria-labelledby="delete-dialog-title"
-        aria-describedby="delete-dialog-desc"
-      >
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-          className="fixed inset-0 bg-ink/70 backdrop-blur-sm"
-          onClick={() => !isDeleting && onClose()}
-        />
-
-        <motion.div
-          ref={modalRef}
-          initial={{ opacity: 0, scale: 0.95, y: 16 }}
-          animate={{ opacity: 1, scale: 1, y: 0 }}
-          exit={{ opacity: 0, scale: 0.95, y: 16 }}
-          transition={{ duration: 0.2 }}
-          className="relative w-full max-w-md overflow-hidden rounded-3xl border border-coral/30 bg-paper p-6 shadow-2xl"
+      {isOpen && order && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4"
+          role="alertdialog"
+          aria-modal="true"
+          aria-labelledby="delete-dialog-title"
+          aria-describedby="delete-dialog-desc"
         >
-          <div className="flex items-start justify-between gap-4">
-            <div className="flex items-center gap-3">
-              <span className="grid size-10 shrink-0 place-items-center rounded-2xl bg-coral/10 text-coral">
-                <AlertOctagon className="size-5" />
-              </span>
-              <div>
-                <h3 id="delete-dialog-title" className="font-display text-lg font-bold text-coral">
-                  Permanently Purge Order
-                </h3>
-                <p id="delete-dialog-desc" className="text-xs text-ink-soft">
-                  #{order.orderCode || order.id} · {getTier(order.tier).label} ({formatUsd(order.totalUsd)})
-                </p>
-              </div>
-            </div>
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-ink/70 backdrop-blur-sm"
+            onClick={() => !isDeleting && onClose()}
+          />
 
-            <button
-              type="button"
-              disabled={isDeleting}
-              onClick={onClose}
-              aria-label="Close dialog"
-              className="rounded-full p-1.5 text-ink-mute transition hover:bg-cream hover:text-ink disabled:opacity-50"
-            >
-              <X className="size-4" />
-            </button>
-          </div>
-
-          <div className="mt-4 rounded-2xl border border-coral/30 bg-coral-soft/50 p-4 text-xs text-ink">
-            <p className="font-semibold text-coral">⚠️ Destructive Action (Cannot Be Undone):</p>
-            <ul className="mt-2 list-disc space-y-1 pl-4 text-ink-soft">
-              <li>Permanently deletes this order and all chat history.</li>
-              <li>Purges uploaded client references, chat attachments, WIP previews, and 300 DPI master files from Supabase Storage buckets.</li>
-              <li>Honors RA 10173 data erasure for declined or abandoned client briefs.</li>
-            </ul>
-          </div>
-
-          {/* Ruling 1 Financial Record Warning */}
-          {hasPaidRecords && (
-            <div className="mt-3 rounded-2xl border border-mustard/60 bg-mustard-soft/80 p-3 text-xs text-ink">
-              <div className="flex items-start gap-2">
-                <AlertTriangle className="size-4 shrink-0 text-mustard" />
+          <motion.div
+            ref={modalRef}
+            tabIndex={-1}
+            initial={{ opacity: 0, scale: 0.95, y: 16 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.95, y: 16 }}
+            transition={{ duration: 0.2 }}
+            className="relative w-full max-w-md overflow-hidden rounded-3xl border border-coral/30 bg-paper p-6 shadow-2xl focus:outline-none"
+          >
+            <div className="flex items-start justify-between gap-4">
+              <div className="flex items-center gap-3">
+                <span className="grid size-10 shrink-0 place-items-center rounded-2xl bg-coral/10 text-coral">
+                  <AlertOctagon className="size-5" />
+                </span>
                 <div>
-                  <p className="font-bold text-ink">Financial Ledger Notice:</p>
-                  <p className="mt-0.5 text-ink-soft">
-                    This order contains verified payment records ({order.depositPaid ? 'Deposit Verified' : ''}{order.depositPaid && order.finalPaid ? ' + ' : ''}{order.finalPaid ? 'Final Verified' : ''}). Hard-deleting it will permanently purge the associated payment transactions.
+                  <h3 id="delete-dialog-title" className="font-display text-lg font-bold text-coral">
+                    Permanently Purge Order
+                  </h3>
+                  <p id="delete-dialog-desc" className="text-xs text-ink-soft">
+                    #{order.orderCode || order.id} · {getTier(order.tier).label} ({formatUsd(order.totalUsd)})
                   </p>
                 </div>
               </div>
-            </div>
-          )}
 
-          <form onSubmit={handleSubmit} className="mt-4 space-y-4">
-            <div>
-              <label htmlFor="confirm-delete-input" className="block text-xs font-semibold text-ink">
-                Type <span className="font-mono font-bold text-coral">DELETE</span> to confirm:
-              </label>
-              <input
-                id="confirm-delete-input"
-                ref={inputRef}
-                type="text"
-                disabled={isDeleting}
-                value={confirmInput}
-                onChange={(e) => setConfirmInput(e.target.value)}
-                placeholder="DELETE"
-                autoComplete="off"
-                className="mt-1.5 w-full rounded-2xl border border-line bg-canvas p-3 font-mono text-sm tracking-wider text-ink uppercase transition focus:border-coral focus:outline-none focus:ring-1 focus:ring-coral"
-              />
-            </div>
-
-            <div className="flex justify-end gap-2 pt-2">
               <button
                 type="button"
+                ref={closeBtnRef}
                 disabled={isDeleting}
                 onClick={onClose}
-                className="rounded-full border border-line px-4 py-2 text-xs font-medium text-ink transition hover:bg-cream disabled:opacity-50"
+                aria-label="Close dialog"
+                className="rounded-full p-1.5 text-ink-mute transition hover:bg-cream hover:text-ink disabled:opacity-50"
               >
-                Cancel
-              </button>
-              <button
-                type="submit"
-                disabled={!isConfirmed || isDeleting}
-                className="inline-flex items-center gap-1.5 rounded-full bg-coral px-5 py-2 text-xs font-semibold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
-              >
-                {isDeleting ? (
-                  <>
-                    <Loader2 className="size-3.5 animate-spin" /> Purging Storage & DB...
-                  </>
-                ) : (
-                  <>
-                    <Trash2 className="size-3.5" /> Purge Order Forever
-                  </>
-                )}
+                <X className="size-4" />
               </button>
             </div>
-          </form>
-        </motion.div>
-      </div>
+
+            {/* Unpaid Completed Order Block */}
+            {hasUnpaidCompletedBalance ? (
+              <div className="mt-4 rounded-2xl border border-coral/40 bg-coral-soft p-4 text-xs text-ink">
+                <div className="flex items-start gap-2.5">
+                  <Ban className="size-5 shrink-0 text-coral" />
+                  <div>
+                    <p className="font-bold text-coral">Purge Blocked: Outstanding Balance Due</p>
+                    <p className="mt-1 text-ink-soft">
+                      This completed order has an unverified 50% final payment balance ({formatUsd(Math.max(0, order.totalUsd - order.depositUsd))}). To protect your studio records, completed orders with unpaid amounts cannot be purged. Reconcile or verify payment in the Payments tab first.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="mt-4 rounded-2xl border border-coral/30 bg-coral-soft/50 p-4 text-xs text-ink">
+                <p className="font-semibold text-coral">⚠️ Destructive Action (Cannot Be Undone):</p>
+                <ul className="mt-2 list-disc space-y-1 pl-4 text-ink-soft">
+                  <li>Permanently deletes this commission and all chat history from the database.</li>
+                  <li>Purges uploaded client references, chat attachments, WIP previews, and 300 DPI master files from storage buckets.</li>
+                  <li>This action is final and irrecoverable.</li>
+                </ul>
+              </div>
+            )}
+
+            {/* Financial Ledger Warning */}
+            {hasPaidRecords && !hasUnpaidCompletedBalance && (
+              <div className="mt-3 rounded-2xl border border-mustard/60 bg-mustard-soft/80 p-3 text-xs text-ink">
+                <div className="flex items-start gap-2">
+                  <AlertTriangle className="size-4 shrink-0 text-mustard" />
+                  <div>
+                    <p className="font-bold text-ink">Financial Ledger Notice:</p>
+                    <p className="mt-0.5 text-ink-soft">
+                      This order contains verified payment records ({order.depositPaid ? 'Deposit Verified' : ''}{order.depositPaid && order.finalPaid ? ' + ' : ''}{order.finalPaid ? 'Final Verified' : ''}). Hard-deleting it will permanently purge the associated payment transactions.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            <form onSubmit={handleSubmit} className="mt-4 space-y-4">
+              {!hasUnpaidCompletedBalance && (
+                <div>
+                  <label htmlFor="confirm-delete-input" className="block text-xs font-semibold text-ink">
+                    Type <span className="font-mono font-bold text-coral">DELETE</span> to confirm:
+                  </label>
+                  <input
+                    id="confirm-delete-input"
+                    ref={inputRef}
+                    type="text"
+                    disabled={isDeleting}
+                    value={confirmInput}
+                    onChange={(e) => setConfirmInput(e.target.value)}
+                    placeholder="DELETE"
+                    autoComplete="off"
+                    className="mt-1.5 w-full rounded-2xl border border-line bg-canvas p-3 font-mono text-sm tracking-wider text-ink uppercase transition focus:border-coral focus:outline-none focus:ring-1 focus:ring-coral"
+                  />
+                </div>
+              )}
+
+              <div className="flex justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  disabled={isDeleting}
+                  onClick={onClose}
+                  className="rounded-full border border-line px-4 py-2 text-xs font-medium text-ink transition hover:bg-cream disabled:opacity-50"
+                >
+                  {hasUnpaidCompletedBalance ? 'Close' : 'Cancel'}
+                </button>
+                {!hasUnpaidCompletedBalance && (
+                  <button
+                    type="submit"
+                    disabled={!isConfirmed || isDeleting}
+                    className="inline-flex items-center gap-1.5 rounded-full bg-coral px-5 py-2 text-xs font-semibold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    {isDeleting ? (
+                      <>
+                        <Loader2 className="size-3.5 animate-spin" /> Purging Storage & DB...
+                      </>
+                    ) : (
+                      <>
+                        <Trash2 className="size-3.5" /> Purge Order Forever
+                      </>
+                    )}
+                  </button>
+                )}
+              </div>
+            </form>
+          </motion.div>
+        </div>
+      )}
     </AnimatePresence>
   );
 }
 ```
 
+---
+
 ### 4.8 `src/components/admin/dialogs/DeclineReasonModal.tsx`
 
-```tsx
+```typescript
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, XCircle, AlertTriangle } from 'lucide-react';
@@ -893,19 +1420,28 @@ import { getTier } from '@/lib/utils';
 interface DeclineReasonModalProps {
   order: SubmittedOrder | null;
   isOpen: boolean;
+  mode?: 'decline' | 'cancel';
   onClose: () => void;
   onConfirmDecline: (orderId: string, reason?: string) => void;
 }
 
+const FOCUSABLE_SELECTOR =
+  'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"]):not([disabled])';
+
 export function DeclineReasonModal({
   order,
   isOpen,
+  mode = 'decline',
   onClose,
   onConfirmDecline,
 }: DeclineReasonModalProps) {
   const [reason, setReason] = useState('');
   const onCloseRef = useRef(onClose);
-  onCloseRef.current = onClose;
+
+  // Update ref in effect to comply with strict React linting
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  });
 
   const previouslyFocusedElementRef = useRef<HTMLElement | null>(null);
   const modalRef = useRef<HTMLDivElement>(null);
@@ -940,9 +1476,7 @@ export function DeclineReasonModal({
       }
 
       if (e.key === 'Tab' && modalRef.current) {
-        const focusable = modalRef.current.querySelectorAll<HTMLElement>(
-          'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])',
-        );
+        const focusable = modalRef.current.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR);
         if (focusable.length === 0) return;
         const first = focusable[0];
         const last = focusable[focusable.length - 1];
@@ -961,117 +1495,136 @@ export function DeclineReasonModal({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isOpen]);
 
-  if (!isOpen || !order) return null;
-
   const handleSubmit = (e: FormEvent) => {
     e.preventDefault();
+    if (!order) return;
     onConfirmDecline(order.id, reason.trim());
     onClose();
   };
 
   return (
     <AnimatePresence>
-      <div
-        className="fixed inset-0 z-50 flex items-center justify-center p-4"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="decline-dialog-title"
-        aria-describedby="decline-dialog-desc"
-      >
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-          className="fixed inset-0 bg-ink/60 backdrop-blur-sm"
-          onClick={onClose}
-        />
-
-        <motion.div
-          ref={modalRef}
-          initial={{ opacity: 0, scale: 0.95, y: 16 }}
-          animate={{ opacity: 1, scale: 1, y: 0 }}
-          exit={{ opacity: 0, scale: 0.95, y: 16 }}
-          transition={{ duration: 0.2 }}
-          className="relative w-full max-w-md overflow-hidden rounded-3xl border border-line bg-paper p-6 shadow-2xl"
+      {isOpen && order && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="decline-dialog-title"
+          aria-describedby="decline-dialog-desc"
         >
-          <div className="flex items-start justify-between gap-4">
-            <div className="flex items-center gap-3">
-              <span className="grid size-10 shrink-0 place-items-center rounded-2xl bg-coral-soft text-coral">
-                <XCircle className="size-5" />
-              </span>
-              <div>
-                <h3 id="decline-dialog-title" className="font-display text-lg font-bold text-ink">
-                  Decline Commission Brief
-                </h3>
-                <p id="decline-dialog-desc" className="text-xs text-ink-soft">
-                  #{order.orderCode || order.id} · {getTier(order.tier).label}
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-ink/60 backdrop-blur-sm"
+            onClick={onClose}
+          />
+
+          <motion.div
+            ref={modalRef}
+            initial={{ opacity: 0, scale: 0.95, y: 16 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.95, y: 16 }}
+            transition={{ duration: 0.2 }}
+            className="relative w-full max-w-md overflow-hidden rounded-3xl border border-line bg-paper p-6 shadow-2xl"
+          >
+            <div className="flex items-start justify-between gap-4">
+              <div className="flex items-center gap-3">
+                <span className="grid size-10 shrink-0 place-items-center rounded-2xl bg-coral-soft text-coral">
+                  <XCircle className="size-5" />
+                </span>
+                <div>
+                  <h3 id="decline-dialog-title" className="font-display text-lg font-bold text-ink">
+                    {mode === 'cancel' ? 'Cancel Commission Order' : 'Decline Commission Brief'}
+                  </h3>
+                  <p id="decline-dialog-desc" className="text-xs text-ink-soft">
+                    #{order.orderCode || order.id} · {getTier(order.tier).label}
+                  </p>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={onClose}
+                aria-label="Close dialog"
+                className="rounded-full p-1.5 text-ink-mute transition hover:bg-cream hover:text-ink"
+              >
+                <X className="size-4" />
+              </button>
+            </div>
+
+            <div className="mt-4 rounded-2xl border border-coral/30 bg-coral-soft/40 p-3 text-xs text-ink-soft">
+              <div className="flex items-start gap-2">
+                <AlertTriangle className="size-4 shrink-0 text-coral" />
+                <p>
+                  {mode === 'cancel'
+                    ? 'Cancelling this commission will move the order into the Archive and release any scheduled calendar slot. The client will be notified in chat.'
+                    : 'Declining this brief will move the order into the Archive and release any temporary slot lock. The client will be able to see the status when tracking.'}
                 </p>
               </div>
             </div>
 
-            <button
-              type="button"
-              onClick={onClose}
-              aria-label="Close dialog"
-              className="rounded-full p-1.5 text-ink-mute transition hover:bg-cream hover:text-ink"
-            >
-              <X className="size-4" />
-            </button>
-          </div>
+            <form onSubmit={handleSubmit} className="mt-4 space-y-4">
+              <div>
+                <label htmlFor="decline-reason" className="block text-xs font-semibold text-ink">
+                  Reason / Note to Client <span className="font-normal text-ink-mute">(optional)</span>:
+                </label>
+                <textarea
+                  id="decline-reason"
+                  ref={textareaRef}
+                  value={reason}
+                  onChange={(e) => setReason(e.target.value)}
+                  placeholder={
+                    mode === 'cancel'
+                      ? 'e.g. Mutual cancellation agreed with client; partial refund issued per TOS.'
+                      : 'e.g. Schedule is currently full for complex mecha/armor; suggest booking next month.'
+                  }
+                  rows={3}
+                  className="mt-1.5 w-full rounded-2xl border border-line bg-canvas p-3 text-xs text-ink transition focus:border-coral focus:outline-none focus:ring-1 focus:ring-coral"
+                />
+              </div>
 
-          <div className="mt-4 rounded-2xl border border-coral/30 bg-coral-soft/40 p-3 text-xs text-ink-soft">
-            <div className="flex items-start gap-2">
-              <AlertTriangle className="size-4 shrink-0 text-coral" />
-              <p>
-                Declining this brief will move the order into the <strong>Archive</strong> and release any temporary slot lock. The client will be able to see the status when tracking.
-              </p>
-            </div>
-          </div>
-
-          <form onSubmit={handleSubmit} className="mt-4 space-y-4">
-            <div>
-              <label htmlFor="decline-reason" className="block text-xs font-semibold text-ink">
-                Reason / Note to Client <span className="font-normal text-ink-mute">(optional)</span>:
-              </label>
-              <textarea
-                id="decline-reason"
-                ref={textareaRef}
-                value={reason}
-                onChange={(e) => setReason(e.target.value)}
-                placeholder="e.g. Schedule is currently full for complex mecha/armor; suggest booking next month."
-                rows={3}
-                className="mt-1.5 w-full rounded-2xl border border-line bg-canvas p-3 text-xs text-ink transition focus:border-coral focus:outline-none focus:ring-1 focus:ring-coral"
-              />
-            </div>
-
-            <div className="flex justify-end gap-2 pt-2">
-              <button
-                type="button"
-                onClick={onClose}
-                className="rounded-full border border-line px-4 py-2 text-xs font-medium text-ink transition hover:bg-cream"
-              >
-                Cancel
-              </button>
-              <button
-                type="submit"
-                className="inline-flex items-center gap-1.5 rounded-full bg-coral px-5 py-2 text-xs font-semibold text-white transition hover:opacity-90"
-              >
-                <XCircle className="size-3.5" /> Decline Order
-              </button>
-            </div>
-          </form>
-        </motion.div>
-      </div>
+              <div className="flex justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={onClose}
+                  className="rounded-full border border-line px-4 py-2 text-xs font-medium text-ink transition hover:bg-cream"
+                >
+                  Keep Order
+                </button>
+                <button
+                  type="submit"
+                  className="inline-flex items-center gap-1.5 rounded-full bg-coral px-5 py-2 text-xs font-semibold text-white transition hover:opacity-90"
+                >
+                  <XCircle className="size-3.5" />
+                  {mode === 'cancel' ? 'Cancel Commission' : 'Decline Order'}
+                </button>
+              </div>
+            </form>
+          </motion.div>
+        </div>
+      )}
     </AnimatePresence>
   );
 }
 ```
 
+---
+
 ### 4.9 `src/components/admin/tabs/PipelineTab.tsx`
 
-```tsx
+```typescript
 import { useMemo, useRef, useState, type ChangeEvent, type FormEvent } from 'react';
-import { Calendar, Check, Eye, ImagePlus, Layers, Send, Sparkles } from 'lucide-react';
+import {
+  Calendar,
+  Check,
+  Eye,
+  ImagePlus,
+  Layers,
+  Send,
+  Sparkles,
+  XCircle,
+} from 'lucide-react';
 import { STAGE_STEPS } from '@/data/orders';
 import { useStudio } from '@/context/StudioContext';
 import {
@@ -1090,9 +1643,15 @@ interface PipelineTabProps {
   orders: SubmittedOrder[];
   activeOrderId: string;
   setActiveOrderId: (id: string) => void;
+  onOpenCancelModal?: (order: SubmittedOrder) => void;
 }
 
-export function PipelineTab({ orders, activeOrderId, setActiveOrderId }: PipelineTabProps) {
+export function PipelineTab({
+  orders,
+  activeOrderId,
+  setActiveOrderId,
+  onOpenCancelModal,
+}: PipelineTabProps) {
   const {
     setOrderStage,
     toggleOrderPaymentFlag,
@@ -1363,6 +1922,16 @@ export function PipelineTab({ orders, activeOrderId, setActiveOrderId }: Pipelin
                   );
                 })}
               </div>
+              <div className="mt-3 flex items-center justify-between border-t border-line/60 pt-3">
+                <span className="text-[11px] text-ink-mute">Client requested cancellation or unable to fulfill?</span>
+                <button
+                  type="button"
+                  onClick={() => onOpenCancelModal?.(selectedOrder)}
+                  className="inline-flex items-center gap-1 rounded-xl border border-coral/30 bg-coral/5 px-2.5 py-1.5 text-xs font-semibold text-coral transition hover:bg-coral hover:text-white"
+                >
+                  <XCircle className="size-3.5" /> Cancel Commission
+                </button>
+              </div>
             </div>
 
             {/* Start & Delivery Schedule Date Pickers */}
@@ -1500,9 +2069,11 @@ export function PipelineTab({ orders, activeOrderId, setActiveOrderId }: Pipelin
 }
 ```
 
+---
+
 ### 4.10 `src/components/admin/tabs/IncomingBriefsTab.tsx`
 
-```tsx
+```typescript
 import { CheckCircle2, XCircle, Clock, ExternalLink } from 'lucide-react';
 import type { SubmittedOrder } from '@/types';
 import { getTier, formatUsd, ACCENT_CLASSES, TIER_ACCENT } from '@/lib/utils';
@@ -1671,9 +2242,11 @@ export function IncomingBriefsTab({
 }
 ```
 
+---
+
 ### 4.11 `src/components/admin/tabs/PaymentsTab.tsx`
 
-```tsx
+```typescript
 import { CheckCircle2, ExternalLink, ShieldCheck } from 'lucide-react';
 import type { SubmittedOrder } from '@/types';
 import { getTier, formatUsd } from '@/lib/utils';
@@ -1845,9 +2418,11 @@ export function PaymentsTab({ orders, onTogglePaymentFlag }: PaymentsTabProps) {
 }
 ```
 
+---
+
 ### 4.12 `src/components/admin/tabs/StudioSettingsTab.tsx`
 
-```tsx
+```typescript
 import { useState, useMemo } from 'react';
 import {
   ChevronLeft,
@@ -1883,6 +2458,7 @@ export function StudioSettingsTab() {
     showToast,
   } = useStudio();
 
+  // Mini-calendar state for 1-click date blocking
   const [cursor, setCursor] = useState<{ year: number; month: number }>(() => {
     const now = new Date();
     return { year: now.getFullYear(), month: now.getMonth() };
@@ -2222,11 +2798,20 @@ export function StudioSettingsTab() {
 }
 ```
 
+---
+
 ### 4.13 `src/components/admin/tabs/ArchiveTab.tsx`
 
-```tsx
+```typescript
 import { useState, useMemo } from 'react';
-import { Archive, Trash2, Calendar, XCircle, CheckCircle2, AlertCircle } from 'lucide-react';
+import {
+  Archive,
+  Trash2,
+  Calendar,
+  XCircle,
+  CheckCircle2,
+  AlertCircle,
+} from 'lucide-react';
 import type { SubmittedOrder } from '@/types';
 import { getTier, formatUsd, cn } from '@/lib/utils';
 
@@ -2419,10 +3004,12 @@ export function ArchiveTab({ orders, onOpenDeleteDialog }: ArchiveTabProps) {
 }
 ```
 
+---
+
 ### 4.14 `src/components/admin/AdminDashboard.tsx`
 
-```tsx
-import { useState } from 'react';
+```typescript
+import { useState, useRef, useEffect } from 'react';
 import { Eye, RotateCcw, Sliders } from 'lucide-react';
 import { useStudio } from '@/context/StudioContext';
 import { SectionHeading } from '@/components/ui/SectionHeading';
@@ -2443,10 +3030,12 @@ import type { SubmittedOrder } from '@/types';
 export function AdminDashboard() {
   const {
     submittedOrders,
+    isLoadingOrders,
     activeOrderId,
     setActiveOrderId,
     setOrderStage,
     declineOrder,
+    cancelOrder,
     deleteOrder,
     toggleOrderPaymentFlag,
     resetStudioSettings,
@@ -2468,20 +3057,53 @@ export function AdminDashboard() {
     return segmented.counts.briefs > 0 ? 'briefs' : 'pipeline';
   });
 
+  // Safe initial navigation: waits for async orders to load, then auto-selects briefs if new briefs exist
+  // and the artist has not manually clicked a tab.
+  // Realtime updates after initial load will NEVER hijack the artist's current workspace.
+  const userInteractedRef = useRef(false);
+  const initialNavDoneRef = useRef(false);
+
+  const handleSubTabChange = (tab: AdminSubTab) => {
+    userInteractedRef.current = true;
+    setActiveSubTab(tab);
+  };
+
+  useEffect(() => {
+    if (isLoadingOrders) return;
+
+    if (!initialNavDoneRef.current) {
+      if (!userInteractedRef.current && segmented.counts.briefs > 0) {
+        setActiveSubTab('briefs');
+      }
+      initialNavDoneRef.current = true;
+    }
+  }, [isLoadingOrders, segmented.counts.briefs]);
+
   // Modal dialog states
-  const [orderToDecline, setOrderToDecline] = useState<SubmittedOrder | null>(null);
+  const [orderToDeclineOrCancel, setOrderToDeclineOrCancel] = useState<SubmittedOrder | null>(null);
+  const [reasonModalMode, setReasonModalMode] = useState<'decline' | 'cancel'>('decline');
   const [orderToDelete, setOrderToDelete] = useState<SubmittedOrder | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
 
+  // Keep live order reference for deletion dialog to reflect real-time payment updates
+  const liveOrderToDelete =
+    (orderToDelete && submittedOrders.find((o) => o.id === orderToDelete.id)) || orderToDelete;
+
   const handleAcceptBrief = (orderId: string) => {
     setOrderStage(orderId, 'awaiting_deposit');
-    showToast(`Approved #${orderId}! Client notified to upload deposit.`);
+    const order = submittedOrders.find((o) => o.id === orderId);
+    showToast(`Approved #${order?.orderCode || orderId.slice(0, 8)}! Client notified to upload deposit.`);
+    // Automatically switch to pipeline tab if desired
     setActiveOrderId(orderId);
     setActiveSubTab('pipeline');
   };
 
-  const handleConfirmDecline = (orderId: string, reason?: string) => {
-    declineOrder(orderId, reason);
+  const handleConfirmDeclineOrCancel = (orderId: string, reason?: string) => {
+    if (reasonModalMode === 'cancel') {
+      cancelOrder(orderId, reason);
+    } else {
+      declineOrder(orderId, reason);
+    }
   };
 
   const handleConfirmDelete = async (orderId: string): Promise<boolean> => {
@@ -2518,17 +3140,19 @@ export function AdminDashboard() {
         </div>
 
         <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={() => setDevAdminPreview(!devAdminPreview)}
-            className={cn(
-              'inline-flex items-center gap-1.5 rounded-full px-3.5 py-2 text-xs font-semibold transition-colors',
-              devAdminPreview ? 'bg-ink text-white' : 'border border-line bg-paper text-ink-soft',
-            )}
-          >
-            <Eye className="size-3.5 text-mustard" />
-            Dev Preview: {devAdminPreview ? 'ON' : 'OFF'}
-          </button>
+          {import.meta.env.DEV && (
+            <button
+              type="button"
+              onClick={() => setDevAdminPreview(!devAdminPreview)}
+              className={cn(
+                'inline-flex items-center gap-1.5 rounded-full px-3.5 py-2 text-xs font-semibold transition-colors',
+                devAdminPreview ? 'bg-ink text-white' : 'border border-line bg-paper text-ink-soft',
+              )}
+            >
+              <Eye className="size-3.5 text-mustard" />
+              Dev Preview: {devAdminPreview ? 'ON' : 'OFF'}
+            </button>
+          )}
           <button
             type="button"
             onClick={resetStudioSettings}
@@ -2549,7 +3173,7 @@ export function AdminDashboard() {
       {/* Sub-Navigation Tabs */}
       <AdminNav
         activeSubTab={activeSubTab}
-        onChangeSubTab={setActiveSubTab}
+        onChangeSubTab={handleSubTabChange}
         counts={{
           briefs: segmented.counts.briefs,
           active: segmented.counts.active,
@@ -2563,6 +3187,7 @@ export function AdminDashboard() {
         role="tabpanel"
         id={`admin-panel-${activeSubTab}`}
         aria-labelledby={`admin-tab-${activeSubTab}`}
+        tabIndex={0}
         className="focus:outline-none"
       >
         {activeSubTab === 'pipeline' && (
@@ -2570,6 +3195,10 @@ export function AdminDashboard() {
             orders={segmented.activePipeline}
             activeOrderId={activeOrderId}
             setActiveOrderId={setActiveOrderId}
+            onOpenCancelModal={(order) => {
+              setReasonModalMode('cancel');
+              setOrderToDeclineOrCancel(order);
+            }}
           />
         )}
 
@@ -2577,7 +3206,10 @@ export function AdminDashboard() {
           <IncomingBriefsTab
             orders={segmented.incomingBriefs}
             onAcceptBrief={handleAcceptBrief}
-            onOpenDeclineModal={(order) => setOrderToDecline(order)}
+            onOpenDeclineModal={(order) => {
+              setReasonModalMode('decline');
+              setOrderToDeclineOrCancel(order);
+            }}
           />
         )}
 
@@ -2598,17 +3230,18 @@ export function AdminDashboard() {
         )}
       </div>
 
-      {/* Decline Reason Modal */}
+      {/* Decline & Cancel Reason Modal */}
       <DeclineReasonModal
-        order={orderToDecline}
-        isOpen={Boolean(orderToDecline)}
-        onClose={() => setOrderToDecline(null)}
-        onConfirmDecline={handleConfirmDecline}
+        order={orderToDeclineOrCancel}
+        isOpen={Boolean(orderToDeclineOrCancel)}
+        mode={reasonModalMode}
+        onClose={() => setOrderToDeclineOrCancel(null)}
+        onConfirmDecline={handleConfirmDeclineOrCancel}
       />
 
       {/* Two-Step Destructive Delete Dialog */}
       <DeleteOrderDialog
-        order={orderToDelete}
+        order={liveOrderToDelete}
         isOpen={Boolean(orderToDelete)}
         isDeleting={isDeleting}
         onClose={() => setOrderToDelete(null)}
@@ -2619,15 +3252,19 @@ export function AdminDashboard() {
 }
 ```
 
+---
+
 ### 4.15 `src/components/admin/AdminPanel.tsx`
 
-```tsx
+```typescript
 export { AdminDashboard as AdminPanel } from './AdminDashboard';
 ```
 
+---
+
 ### 4.16 `tests/unit.test.ts` (Admin Order Segmentation Test Suite)
 
-```ts
+```typescript
 describe('Admin Order Lifecycle Segmentation (segmentAdminOrders)', () => {
   const dummyBaseOrder: SubmittedOrder = {
     id: 'test-1',
@@ -2688,7 +3325,53 @@ describe('Admin Order Lifecycle Segmentation (segmentAdminOrders)', () => {
     expect(result.pendingPayments.map((o) => o.id)).toEqual(['2', '4']);
     expect(result.counts.payments).toBe(2);
 
+    // Invariant: briefs + active + archived must always partition total orders exactly
+    expect(result.counts.briefs + result.counts.active + result.counts.archived).toBe(result.counts.total);
     expect(result.counts.total).toBe(8);
+  });
+
+  it('verifies partition invariant: briefs + active + archived === total across all commission stages', () => {
+    const orders: SubmittedOrder[] = [
+      { ...dummyBaseOrder, id: '1', stage: 'pending_review' },
+      { ...dummyBaseOrder, id: '2', stage: 'awaiting_deposit' },
+      { ...dummyBaseOrder, id: '3', stage: 'sketching' },
+      { ...dummyBaseOrder, id: '4', stage: 'sketch_approval' },
+      { ...dummyBaseOrder, id: '5', stage: 'lineart_coloring' },
+      { ...dummyBaseOrder, id: '6', stage: 'completed' },
+      { ...dummyBaseOrder, id: '7', stage: 'declined' },
+      { ...dummyBaseOrder, id: '8', stage: 'cancelled' },
+    ];
+
+    const result = segmentAdminOrders(orders);
+    expect(result.counts.briefs + result.counts.active + result.counts.archived).toBe(result.counts.total);
+    expect(result.counts.total).toBe(orders.length);
+  });
+
+  it('flags completed orders with unpaid 50/50 balance in pendingPayments', () => {
+    const orders: SubmittedOrder[] = [
+      {
+        ...dummyBaseOrder,
+        id: 'comp-unpaid',
+        stage: 'completed',
+        paymentSplit: '50_50',
+        depositPaid: true,
+        finalPaid: false,
+      },
+      {
+        ...dummyBaseOrder,
+        id: 'comp-paid',
+        stage: 'completed',
+        paymentSplit: '50_50',
+        depositPaid: true,
+        finalPaid: true,
+      },
+    ];
+
+    const result = segmentAdminOrders(orders);
+    expect(result.counts.archived).toBe(2);
+    expect(result.counts.payments).toBe(1);
+    expect(result.pendingPayments.map((o) => o.id)).toEqual(['comp-unpaid']);
+    expect(result.counts.briefs + result.counts.active + result.counts.archived).toBe(result.counts.total);
   });
 });
 ```
