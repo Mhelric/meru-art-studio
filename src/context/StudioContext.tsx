@@ -42,6 +42,7 @@ import {
   usePublicStudioDataQuery,
   useUpdateCommissionStageMutation,
   useDeclineCommissionMutation,
+  useDeleteCommissionMutation,
   useTogglePaymentFlagMutation,
   useUpdateScheduleMutation,
   useSendMessageMutation,
@@ -199,7 +200,8 @@ interface StudioState {
     error: string | null;
   }>;
   setOrderStage: (orderId: string, stage: CommissionStage) => void;
-  declineOrder: (orderId: string) => void;
+  declineOrder: (orderId: string, reason?: string) => void;
+  deleteOrder: (orderId: string) => Promise<boolean>;
   toggleOrderPaymentFlag: (orderId: string, field: 'depositPaid' | 'finalPaid') => void;
   updateOrderSchedule: (orderId: string, startDate: string, estEndDate: string) => void;
   uploadArtistWip: (
@@ -360,6 +362,7 @@ export function StudioProvider({ children }: { children: ReactNode }) {
   // React Query Mutation Hooks
   const updateStageMut = useUpdateCommissionStageMutation();
   const declineMut = useDeclineCommissionMutation();
+  const deleteMut = useDeleteCommissionMutation();
   const togglePaymentMut = useTogglePaymentFlagMutation();
   const updateScheduleMut = useUpdateScheduleMutation();
   const sendMessageMut = useSendMessageMutation();
@@ -684,21 +687,44 @@ export function StudioProvider({ children }: { children: ReactNode }) {
   );
 
   const declineOrder = useCallback(
-    (orderId: string) => {
+    (orderId: string, reason?: string) => {
       if (isSupabaseConfigured && orderId !== DEMO_SHOWCASE_ORDER.id) {
         declineMut.mutate(
-          { commissionId: orderId },
+          { commissionId: orderId, reason },
           {
-            onSuccess: () => showToast(`Order #${orderId} declined. Slot was not deducted.`),
+            onSuccess: () => showToast(`Order #${orderId} declined and moved to Archive.`),
             onError: (err) => showToast(err.message),
           },
         );
       } else {
-        setLocalOrders((prev) => prev.map((o) => (o.id === orderId ? { ...o, declined: true } : o)));
-        showToast(`Order #${orderId} declined.`);
+        setLocalOrders((prev) =>
+          prev.map((o) => (o.id === orderId ? { ...o, declined: true, stage: 'declined' } : o)),
+        );
+        showToast(`Order #${orderId} moved to Archive.`);
       }
     },
     [declineMut, showToast],
+  );
+
+  const deleteOrder = useCallback(
+    async (orderId: string): Promise<boolean> => {
+      if (isSupabaseConfigured && orderId !== DEMO_SHOWCASE_ORDER.id) {
+        try {
+          await deleteMut.mutateAsync(orderId);
+          showToast(`Order #${orderId} permanently deleted.`);
+          return true;
+        } catch (err: unknown) {
+          const msg = err instanceof Error ? err.message : 'Failed to delete order';
+          showToast(msg);
+          return false;
+        }
+      } else {
+        setLocalOrders((prev) => prev.filter((o) => o.id !== orderId));
+        showToast(`Order #${orderId} removed.`);
+        return true;
+      }
+    },
+    [deleteMut, showToast],
   );
 
   const toggleOrderPaymentFlag = useCallback(
@@ -932,6 +958,7 @@ export function StudioProvider({ children }: { children: ReactNode }) {
       submitOrder,
       setOrderStage,
       declineOrder,
+      deleteOrder,
       toggleOrderPaymentFlag,
       updateOrderSchedule,
       uploadArtistWip,
@@ -980,6 +1007,7 @@ export function StudioProvider({ children }: { children: ReactNode }) {
       submitOrder,
       setOrderStage,
       declineOrder,
+      deleteOrder,
       toggleOrderPaymentFlag,
       updateOrderSchedule,
       uploadArtistWip,

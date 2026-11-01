@@ -402,18 +402,119 @@ export async function updateCommissionStageInDb(
 }
 
 /** Decline a commission in Supabase (Admin action). */
+/**
+ * Decline or cancel a commission with an optional reason logged to commission_events / messages.
+ */
+export async function archiveOrDeclineCommissionInDb(
+  commissionId: string,
+  targetStage: 'declined' | 'cancelled',
+  reason?: string,
+): Promise<{ success: boolean; error: string | null }> {
+  if (!supabase) return { success: false, error: 'Supabase not connected' };
+
+  const { data, error } = await supabase
+    .from('commissions')
+    .update({ status_stage: targetStage, progress: 0 })
+    .eq('id', commissionId)
+    .select('id')
+    .single();
+
+  if (error || !data) {
+    return { success: false, error: error?.message ?? `Failed to mark order as ${targetStage}` };
+  }
+
+  if (reason && reason.trim()) {
+    await sendCommissionMessageInDb(
+      commissionId,
+      `[${targetStage.toUpperCase()} Notice]: ${reason.trim()}`,
+      { attachmentKind: 'other' },
+    );
+  }
+
+  return { success: true, error: null };
+}
+
+/** Decline a commission in Supabase (Admin action). */
 export async function declineCommissionInDb(
+  commissionId: string,
+  reason?: string,
+): Promise<{ success: boolean; error: string | null }> {
+  return archiveOrDeclineCommissionInDb(commissionId, 'declined', reason);
+}
+
+/**
+ * Permanently purge a terminal commission ('declined', 'cancelled', 'completed')
+ * along with its associated private storage objects across all 3 studio buckets.
+ */
+export async function deleteCommissionInDb(
   commissionId: string,
 ): Promise<{ success: boolean; error: string | null }> {
   if (!supabase) return { success: false, error: 'Supabase not connected' };
 
-  const { error } = await supabase
-    .from('commissions')
-    .update({ status_stage: 'declined' })
-    .eq('id', commissionId);
+  try {
+    // Step 1: Collect linked storage paths via security-definer RPC
+    const { data: pathBundle, error: rpcErr } = await supabase.rpc(
+      'get_commission_storage_paths',
+      { p_commission_id: commissionId },
+    );
 
-  return { success: !error, error: error?.message ?? null };
+    if (!rpcErr && pathBundle) {
+      const bundle = pathBundle as {
+        references?: string[];
+        wip_previews?: string[];
+        wip_masters?: string[];
+        receipts?: string[];
+        chat_attachments?: string[];
+      };
+      const refPaths: string[] = [
+        ...(Array.isArray(bundle.references) ? bundle.references : []),
+        ...(Array.isArray(bundle.chat_attachments) ? bundle.chat_attachments : []),
+      ];
+      const wipPaths: string[] = [
+        ...(Array.isArray(bundle.wip_previews) ? bundle.wip_previews : []),
+        ...(Array.isArray(bundle.wip_masters) ? bundle.wip_masters : []),
+      ];
+      const receiptPaths: string[] = Array.isArray(bundle.receipts) ? bundle.receipts : [];
+
+      await Promise.allSettled([
+        refPaths.length > 0
+          ? supabase.storage.from('commission-references').remove(refPaths)
+          : Promise.resolve(),
+        wipPaths.length > 0
+          ? supabase.storage.from('commission-wips').remove(wipPaths)
+          : Promise.resolve(),
+        receiptPaths.length > 0
+          ? supabase.storage.from('commission-receipts').remove(receiptPaths)
+          : Promise.resolve(),
+      ]);
+    }
+
+    // Step 2: Execute guarded hard DELETE on public.commissions (cascades to child tables)
+    const { data: deletedRow, error: deleteErr } = await supabase
+      .from('commissions')
+      .delete()
+      .eq('id', commissionId)
+      .in('status_stage', ['declined', 'cancelled', 'completed'])
+      .select('id')
+      .single();
+
+    if (deleteErr || !deletedRow) {
+      return {
+        success: false,
+        error:
+          deleteErr?.message ??
+          'Order could not be deleted. Ensure the order is in Declined, Cancelled, or Completed state.',
+      };
+    }
+
+    return { success: true, error: null };
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Unexpected error during commission purge';
+    return { success: false, error: message };
+  }
 }
+
+
 
 /** Toggle payment verified flag in Supabase and reconcile payments audit trail (Admin action). */
 export async function toggleCommissionPaymentInDb(

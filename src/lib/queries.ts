@@ -7,7 +7,8 @@ import {
   fetchPublicStudioData,
   insertCommissionInSupabase,
   updateCommissionStageInDb,
-  declineCommissionInDb,
+  archiveOrDeclineCommissionInDb,
+  deleteCommissionInDb,
   toggleCommissionPaymentInDb,
   updateCommissionScheduleInDb,
   sendCommissionMessageInDb,
@@ -100,10 +101,53 @@ export function useDeclineCommissionMutation() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async ({ commissionId }: { commissionId: string }) => {
-      return declineCommissionInDb(commissionId);
+    mutationFn: async ({
+      commissionId,
+      reason,
+      targetStage = 'declined',
+    }: {
+      commissionId: string;
+      reason?: string;
+      targetStage?: 'declined' | 'cancelled';
+    }) => {
+      const res = await archiveOrDeclineCommissionInDb(commissionId, targetStage, reason);
+      if (!res.success) throw new Error(res.error ?? `Failed to mark order as ${targetStage}`);
+      return res;
     },
     onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.commissions });
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.publicStudioData });
+    },
+  });
+}
+
+export function useDeleteCommissionMutation() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (commissionId: string) => {
+      const res = await deleteCommissionInDb(commissionId);
+      if (!res.success) throw new Error(res.error ?? 'Failed to delete commission');
+      return commissionId;
+    },
+    onMutate: async (deletedId) => {
+      await queryClient.cancelQueries({ queryKey: QUERY_KEYS.commissions });
+      const previousAdmin = queryClient.getQueryData<SubmittedOrder[]>(QUERY_KEYS.adminCommissions);
+
+      if (previousAdmin) {
+        queryClient.setQueryData<SubmittedOrder[]>(
+          QUERY_KEYS.adminCommissions,
+          previousAdmin.filter((o) => o.id !== deletedId),
+        );
+      }
+      return { previousAdmin };
+    },
+    onError: (_err, _deletedId, context) => {
+      if (context?.previousAdmin) {
+        queryClient.setQueryData(QUERY_KEYS.adminCommissions, context.previousAdmin);
+      }
+    },
+    onSettled: () => {
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.commissions });
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.publicStudioData });
     },

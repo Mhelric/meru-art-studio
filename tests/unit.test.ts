@@ -3,7 +3,8 @@ import { calculateOrderPricing, DEFAULT_STUDIO_SETTINGS } from '@/context/Studio
 import { escapeHtml } from '@/lib/invoice';
 import { getLocalTodayDate, getLocalFutureDate, formatMoney, formatShortDate } from '@/lib/utils';
 import { getRefundTierInfo } from '@/components/track/OrderTracker';
-import type { OrderDraft } from '@/types';
+import type { OrderDraft, SubmittedOrder } from '@/types';
+import { segmentAdminOrders } from '@/components/admin/useSegmentedAdminOrders';
 
 describe('Pricing Calculation Engine (calculateOrderPricing)', () => {
   const baseDraft: OrderDraft = {
@@ -208,3 +209,67 @@ describe('TOS Refund Schedule Calculation (getRefundTierInfo)', () => {
   });
 });
 
+
+describe('Admin Order Lifecycle Segmentation (segmentAdminOrders)', () => {
+  const dummyBaseOrder: SubmittedOrder = {
+    id: 'test-1',
+    orderCode: 'MERU-20261102-TEST',
+    createdAt: new Date().toISOString(),
+    tier: 'fullbody',
+    characterCount: 1,
+    addons: { nsfw: false, softFurry: false, commercial: false },
+    currency: 'USD',
+    paymentSplit: '50_50',
+    preferredStartDate: null,
+    characterName: 'Test Character',
+    poseAndVibe: 'Action pose',
+    backgroundNotes: '',
+    clientContact: 'client@example.com',
+    references: [],
+    tosAccepted: true,
+    tosAcceptedAt: new Date().toISOString(),
+    totalUsd: 100,
+    depositUsd: 50,
+    depositPaid: false,
+    finalPaid: false,
+    sketchApproved: false,
+    stage: 'pending_review',
+    progress: 0,
+    authMethod: 'google',
+    wips: [],
+    messages: [],
+  };
+
+  it('correctly partitions incoming briefs from active pipeline and terminal archive', () => {
+    const orders: SubmittedOrder[] = [
+      { ...dummyBaseOrder, id: '1', stage: 'pending_review' },
+      { ...dummyBaseOrder, id: '2', stage: 'awaiting_deposit', depositPaid: false },
+      { ...dummyBaseOrder, id: '3', stage: 'sketching', depositPaid: true },
+      { ...dummyBaseOrder, id: '4', stage: 'sketch_approval', depositPaid: true, finalPaid: false },
+      { ...dummyBaseOrder, id: '5', stage: 'lineart_coloring', depositPaid: true, finalPaid: true },
+      { ...dummyBaseOrder, id: '6', stage: 'completed', depositPaid: true, finalPaid: true },
+      { ...dummyBaseOrder, id: '7', stage: 'declined' },
+      { ...dummyBaseOrder, id: '8', stage: 'cancelled' },
+    ];
+
+    const result = segmentAdminOrders(orders);
+
+    // Incoming briefs
+    expect(result.incomingBriefs.map((o) => o.id)).toEqual(['1']);
+    expect(result.counts.briefs).toBe(1);
+
+    // Active pipeline
+    expect(result.activePipeline.map((o) => o.id)).toEqual(['2', '3', '4', '5']);
+    expect(result.counts.active).toBe(4);
+
+    // Terminal archive (declined, cancelled, completed)
+    expect(result.archivedOrders.map((o) => o.id)).toEqual(['6', '7', '8']);
+    expect(result.counts.archived).toBe(3);
+
+    // Pending payments: order 2 (unpaid deposit) and order 4 (unpaid final on 50/50 split)
+    expect(result.pendingPayments.map((o) => o.id)).toEqual(['2', '4']);
+    expect(result.counts.payments).toBe(2);
+
+    expect(result.counts.total).toBe(8);
+  });
+});
