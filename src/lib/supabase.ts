@@ -35,6 +35,11 @@ export const isSupabaseConfigured = Boolean(
     supabaseAnonKey !== 'your-public-anon-key',
 );
 
+// In Node.js test runners without native WebSocket, provide a stub to prevent Realtime init crash
+if (typeof globalThis.WebSocket === 'undefined' && typeof window === 'undefined') {
+  (globalThis as unknown as Record<string, unknown>).WebSocket = class MockWebSocket {};
+}
+
 export const supabase: SupabaseClient | null = isSupabaseConfigured
   ? createClient(supabaseUrl!, supabaseAnonKey!, {
       auth: { persistSession: true, autoRefreshToken: true },
