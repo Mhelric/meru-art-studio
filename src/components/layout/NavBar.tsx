@@ -15,7 +15,7 @@ const NAV: { id: TabId; label: string; short: string }[] = [
 ];
 
 export function NavBar() {
-  const { activeTab, setActiveTab, openDrawer, user, signOut, showToast, isArtistAdmin } = useStudio();
+  const { activeTab, setActiveTab, openDrawer, user, signOut, showToast, isArtistAdmin, signInWithGoogle } = useStudio();
   const { scrollY } = useScroll();
   const [scrolled, setScrolled] = useState(false);
   const [hidden, setHidden] = useState(false);
@@ -96,6 +96,17 @@ export function NavBar() {
                 <LogOut className="size-3.5" />
               </button>
             </div>
+          )}
+
+          {/* Sign in button when logged out */}
+          {!user && (
+            <button
+              type="button"
+              onClick={() => signInWithGoogle()}
+              className="rounded-full border border-line bg-paper px-3 py-1.5 text-xs font-medium text-ink transition-colors hover:border-ink/40 hover:bg-cream sm:px-3.5 sm:py-2 sm:text-sm"
+            >
+              Sign in
+            </button>
           )}
 
           <button
