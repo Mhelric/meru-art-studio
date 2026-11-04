@@ -5,24 +5,35 @@ import {
   Calendar,
   Check,
   CheckCircle2,
-  Eye,
   FileCheck2,
+  FileText,
   ImagePlus,
   Minus,
   Plus,
   ShieldCheck,
   Sparkles,
   Trash2,
+  Upload,
   X,
 } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react';
 import { PORTFOLIO } from '@/data/artist';
 import { calculateOrderPricing, useStudio, type DrawerStep } from '@/context/StudioContext';
-import { ACCENT_CLASSES, TIER_ACCENT, cn, formatShortDate, getLocalFutureDate } from '@/lib/utils';
+import {
+  ACCENT_CLASSES,
+  TIER_ACCENT,
+  cn,
+  formatShortDate,
+  getLocalFutureDate,
+} from '@/lib/utils';
 import { lockScroll } from '@/lib/smoothScroll';
 import { EASE } from '@/components/ui/Reveal';
 import { BrandIcon } from '@/components/ui/BrandIcon';
+import { StudioStatusBadge } from '@/components/ui/StudioStatusBadge';
+import { useStudioStatus } from '@/hooks/useStudioStatus';
+import { MiniAvailabilityPicker } from '@/components/schedule/MiniAvailabilityPicker';
 import { ArtImage } from './ArtImage';
+import { TosModal } from './TosModal';
 import type { ReferenceFile, SubmittedOrder, TierId } from '@/types';
 
 const TIER_PREVIEW: Record<TierId, { slug: string; pos: string }> = {
@@ -60,12 +71,17 @@ export function TierModal() {
     submitOrder,
     setActiveTab,
     showToast,
+    user,
+    queueSlots,
   } = useStudio();
+  const statusInfo = useStudioStatus();
 
   const [justSubmitted, setJustSubmitted] = useState<SubmittedOrder | null>(null);
   const [step2Error, setStep2Error] = useState<string | null>(null);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [isTosModalOpen, setIsTosModalOpen] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const tierId = draft.tier;
@@ -89,6 +105,8 @@ export function TierModal() {
       setJustSubmitted(null);
       setStep2Error(null);
       setSubmitError(null);
+      setIsTosModalOpen(false);
+      setIsDragging(false);
       return;
     }
     previouslyFocusedElementRef.current = document.activeElement as HTMLElement;
@@ -129,27 +147,97 @@ export function TierModal() {
   const samples = useMemo(() => PORTFOLIO.filter((p) => p.tier === tierId), [tierId]);
   const sampleIds = useMemo(() => samples.map((s) => s.id), [samples]);
 
-  const handleFilesSelected = (e: ChangeEvent<HTMLInputElement>) => {
-    const fileList = e.target.files;
-    if (!fileList || fileList.length === 0) return;
+  const addReferenceFiles = (fileList: File[]) => {
+    const imageFiles = fileList.filter((f) => f.type.startsWith('image/'));
+    if (imageFiles.length === 0) return;
 
-    const added: ReferenceFile[] = Array.from(fileList)
-      .slice(0, 5 - draft.references.length)
+    const oversized = imageFiles.find((f) => f.size > 20 * 1024 * 1024);
+    if (oversized) {
+      setStep2Error(`"${oversized.name}" exceeds the 20MB size limit. Please choose a smaller image.`);
+      return;
+    }
+
+    const remainingSlots = 5 - draft.references.length;
+    if (remainingSlots <= 0) {
+      setStep2Error('Maximum of 5 reference sheets allowed per commission brief.');
+      return;
+    }
+
+    const added: ReferenceFile[] = imageFiles
+      .slice(0, remainingSlots)
       .map((f) => ({
         id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
         name: f.name,
         sizeBytes: f.size,
         previewUrl: URL.createObjectURL(f),
+        file: f,
       }));
 
-    updateDraft({ references: [...draft.references, ...added] });
+    const nextRefs = [...draft.references, ...added];
+    updateDraft({ references: nextRefs });
+    if (nextRefs.length >= 1 && step2Error?.includes('reference sheet')) {
+      setStep2Error(null);
+    }
+  };
+
+  const handleFilesSelected = (e: ChangeEvent<HTMLInputElement>) => {
+    const fileList = e.target.files;
+    if (!fileList || fileList.length === 0) return;
+    addReferenceFiles(Array.from(fileList));
     e.target.value = '';
   };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(true);
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.currentTarget.contains(e.relatedTarget as Node)) return;
+    setIsDragging(false);
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      addReferenceFiles(Array.from(e.dataTransfer.files));
+    }
+  };
+
+  // Clipboard Paste (Ctrl+V) listener when drawer is on Step 2
+  useEffect(() => {
+    if (!drawerOpen || drawerStep !== 2) return;
+    const handlePaste = (e: ClipboardEvent) => {
+      const items = e.clipboardData?.items;
+      if (!items) return;
+      const files: File[] = [];
+      for (let i = 0; i < items.length; i++) {
+        if (items[i].type.startsWith('image/')) {
+          const file = items[i].getAsFile();
+          if (file) files.push(file);
+        }
+      }
+      if (files.length > 0) {
+        addReferenceFiles(files);
+      }
+    };
+    window.addEventListener('paste', handlePaste);
+    return () => window.removeEventListener('paste', handlePaste);
+  }, [drawerOpen, drawerStep, draft.references.length]);
 
   const removeReference = (id: string) => {
     const target = draft.references.find((r) => r.id === id);
     if (target) URL.revokeObjectURL(target.previewUrl);
-    updateDraft({ references: draft.references.filter((r) => r.id !== id) });
+    const nextRefs = draft.references.filter((r) => r.id !== id);
+    updateDraft({ references: nextRefs });
+    if (nextRefs.length < 1) {
+      setStep2Error('Please attach at least 1 character reference sheet before proceeding.');
+    }
   };
 
   const toggleTos = () => {
@@ -166,6 +254,10 @@ export function TierModal() {
       setStep2Error('Please add a short character / pose description so Meru knows what to draw.');
       return;
     }
+    if (draft.references.length < 1) {
+      setStep2Error('Please attach at least 1 character reference sheet before proceeding.');
+      return;
+    }
     if (!draft.tosAccepted) {
       setStep2Error('Please agree to the Terms of Service to continue.');
       return;
@@ -175,6 +267,10 @@ export function TierModal() {
   };
 
   const handleFinalSubmit = async (method: SubmittedOrder['authMethod']) => {
+    if (statusInfo.isClosed) {
+      setSubmitError('Studio is currently closed for new commission requests.');
+      return;
+    }
     setSubmitting(true);
     setSubmitError(null);
     try {
@@ -184,14 +280,15 @@ export function TierModal() {
         return;
       }
       setJustSubmitted(order);
-      showToast(`Brief ${order.id} submitted to Pending Review!`);
+      showToast(`Brief #${order.orderCode || order.id} submitted to Pending Review!`);
     } finally {
       setSubmitting(false);
     }
   };
 
   return (
-    <AnimatePresence>
+    <>
+      <AnimatePresence>
       {drawerOpen && (
         <motion.div
           key="tier-drawer"
@@ -207,6 +304,7 @@ export function TierModal() {
         >
           <motion.div
             ref={drawerRef}
+            data-lenis-prevent
             tabIndex={-1}
             initial={{ y: '100%' }}
             animate={{ y: 0 }}
@@ -222,10 +320,11 @@ export function TierModal() {
 
             {/* Header: Title + Currency Switcher + Close */}
             <div className="flex items-center justify-between gap-2 px-4 pt-2.5 pb-2.5 sm:px-5 sm:pt-4">
-              <div>
+              <div className="flex items-center gap-2">
                 <h2 className="font-display text-xl font-semibold text-ink sm:text-2xl">
                   {justSubmitted ? 'Request Received!' : 'Commission Request'}
                 </h2>
+                {!justSubmitted && <StudioStatusBadge size="sm" />}
               </div>
 
               <div className="flex items-center gap-1.5">
@@ -293,7 +392,18 @@ export function TierModal() {
             )}
 
             {/* Step Body */}
-            <div className="flex-1 overflow-y-auto px-4 py-3.5 sm:px-5 sm:py-4">
+            <div data-lenis-prevent className="flex-1 overflow-y-auto overflow-x-hidden px-4 py-3.5 sm:px-5 sm:py-4">
+              {statusInfo.isClosed && !justSubmitted && (
+                <div className="mb-4 rounded-2xl border border-coral/30 bg-coral-soft p-3.5 text-xs text-coral">
+                  <div className="flex items-center gap-2 font-semibold">
+                    <span className="size-2 rounded-full bg-coral" />
+                    <span>Studio Closed for New Commissions</span>
+                  </div>
+                  <p className="mt-1 text-ink-soft">
+                    Meru Art Studio is currently closed for new commission requests. Submissions are temporarily paused, but your brief details will remain safely saved in this form.
+                  </p>
+                </div>
+              )}
               {justSubmitted ? (
                 <SubmissionSuccess
                   order={justSubmitted}
@@ -506,27 +616,25 @@ export function TierModal() {
               ) : drawerStep === 2 ? (
                 /* ================= STEP 2: BRIEF & REFERENCES ================= */
                 <div className="space-y-3.5">
-                  <div className="grid grid-cols-2 gap-2.5">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                     <div>
                       <label className="mb-1 block text-xs font-medium text-ink">Character / Subject Name</label>
                       <input
                         type="text"
                         value={draft.characterName}
                         onChange={(e) => updateDraft({ characterName: e.target.value })}
-                        placeholder="e.g. Kitsune OC, Frieren"
+                        placeholder="Your Character's Name or Title"
                         className="w-full rounded-xl border border-line bg-canvas px-3 py-2 text-xs text-ink placeholder:text-ink-mute focus:border-ink focus:outline-none"
                       />
                     </div>
                     <div>
                       <label className="mb-1 block text-xs font-medium text-ink">Preferred Start Date</label>
-                      <div className="relative">
-                        <input
-                          type="date"
-                          value={draft.preferredStartDate ?? getLocalFutureDate(3)}
-                          onChange={(e) => updateDraft({ preferredStartDate: e.target.value })}
-                          className="w-full rounded-xl border border-line bg-canvas px-3 py-2 text-xs text-ink focus:border-ink focus:outline-none"
-                        />
-                      </div>
+                      <MiniAvailabilityPicker
+                        selectedDate={draft.preferredStartDate ?? getLocalFutureDate(3)}
+                        onSelectDate={(iso) => updateDraft({ preferredStartDate: iso })}
+                        queueSlots={queueSlots}
+                        studioSettings={studioSettings}
+                      />
                     </div>
                   </div>
 
@@ -546,11 +654,15 @@ export function TierModal() {
                     />
                   </div>
 
-                  {/* Reference Image Uploader */}
+                  {/* Reference Image Uploader with Drag & Drop */}
                   <div>
                     <div className="mb-1.5 flex items-center justify-between">
-                      <span className="text-xs font-medium text-ink">Character Reference Sheets (up to 5)</span>
-                      <span className="text-[11px] text-ink-mute">{draft.references.length}/5 attached</span>
+                      <span className="text-xs font-medium text-ink">
+                        Character Reference Sheets <span className="text-coral">* (min 1 required)</span>
+                      </span>
+                      <span className={cn('text-[11px] font-medium', draft.references.length < 1 ? 'text-coral' : 'text-teal')}>
+                        {draft.references.length}/5 attached {draft.references.length < 1 ? '(1 required)' : '✓ Ready'}
+                      </span>
                     </div>
 
                     <input
@@ -562,64 +674,111 @@ export function TierModal() {
                       className="hidden"
                     />
 
-                    <div className="flex flex-wrap gap-2">
-                      {draft.references.map((ref) => (
-                        <div
-                          key={ref.id}
-                          className="group relative size-16 overflow-hidden rounded-xl border border-line bg-cream"
-                        >
-                          <img src={ref.previewUrl} alt={ref.name} className="size-full object-cover" />
+                    {/* Interactive Drag & Drop Area */}
+                    <div
+                      onDragOver={handleDragOver}
+                      onDragLeave={handleDragLeave}
+                      onDrop={handleDrop}
+                      className={cn(
+                        'rounded-2xl border p-2.5 transition-all',
+                        isDragging
+                          ? 'border-coral bg-coral-soft/30 ring-2 ring-coral/50 scale-[1.01]'
+                          : 'border-line/70 bg-canvas/60',
+                      )}
+                    >
+                      <div className="flex flex-wrap gap-2">
+                        {draft.references.map((ref) => (
+                          <div
+                            key={ref.id}
+                            className="group relative size-16 overflow-hidden rounded-xl border border-line bg-cream"
+                          >
+                            <img src={ref.previewUrl} alt={ref.name} className="size-full object-cover" />
+                            <button
+                              type="button"
+                              onClick={() => removeReference(ref.id)}
+                              aria-label={`Remove ${ref.name}`}
+                              className="absolute top-1 right-1 grid size-5 place-items-center rounded-full bg-ink/80 text-white transition hover:bg-coral"
+                            >
+                              <Trash2 className="size-3" />
+                            </button>
+                          </div>
+                        ))}
+
+                        {draft.references.length < 5 && (
                           <button
                             type="button"
-                            onClick={() => removeReference(ref.id)}
-                            aria-label={`Remove ${ref.name}`}
-                            className="absolute top-1 right-1 grid size-5 place-items-center rounded-full bg-ink/80 text-white"
+                            onClick={() => fileInputRef.current?.click()}
+                            className={cn(
+                              'flex h-16 flex-1 min-w-[150px] items-center justify-center gap-2 rounded-xl border border-dashed px-3 text-xs font-medium transition',
+                              isDragging
+                                ? 'border-coral bg-coral-soft text-coral font-bold animate-pulse'
+                                : 'border-ink/30 bg-paper text-ink-soft hover:border-ink hover:bg-cream/60 hover:text-ink',
+                            )}
                           >
-                            <Trash2 className="size-3" />
+                            {isDragging ? (
+                              <>
+                                <Upload className="size-4 text-coral animate-bounce" />
+                                <span>Drop Images to Add!</span>
+                              </>
+                            ) : (
+                              <>
+                                <ImagePlus className="size-4 text-coral" />
+                                <span>Add / Drag & Drop Images</span>
+                              </>
+                            )}
                           </button>
-                        </div>
-                      ))}
+                        )}
+                      </div>
 
-                      {draft.references.length < 5 && (
-                        <button
-                          type="button"
-                          onClick={() => fileInputRef.current?.click()}
-                          className="flex h-16 flex-1 min-w-[140px] items-center justify-center gap-2 rounded-2xl border border-dashed border-ink/30 bg-canvas px-3 text-xs font-medium text-ink-soft transition hover:border-ink hover:bg-cream/60 hover:text-ink"
-                        >
-                          <ImagePlus className="size-4 text-coral" />
-                          <span>Add Reference Images</span>
-                        </button>
+                      {isDragging && (
+                        <p className="mt-2 text-center text-[11px] font-semibold text-coral animate-pulse">
+                          Release to add reference images (PNG, JPG, WebP)
+                        </p>
                       )}
                     </div>
                   </div>
 
-                  {/* Mandatory Timestamped TOS Checkbox */}
-                  <div className="rounded-2xl border border-line bg-canvas p-3">
-                    <button
-                      type="button"
-                      onClick={toggleTos}
-                      className="flex w-full items-start gap-2.5 text-left"
-                    >
-                      <span
-                        className={cn(
-                          'mt-0.5 grid size-5 shrink-0 place-items-center rounded-md border transition-colors',
-                          draft.tosAccepted ? 'border-ink bg-ink text-white' : 'border-ink/40 bg-paper',
-                        )}
+                  {/* Mandatory Timestamped TOS Checkbox with Modal View */}
+                  <div className="rounded-2xl border border-line bg-canvas p-3 space-y-2.5 shadow-2xs">
+                    <div className="flex items-start justify-between gap-2.5">
+                      <button
+                        type="button"
+                        onClick={toggleTos}
+                        className="flex flex-1 items-start gap-2.5 text-left group"
                       >
-                        {draft.tosAccepted && <Check className="size-3.5" strokeWidth={3} />}
-                      </span>
-                      <div className="text-xs leading-snug text-ink-soft">
-                        <span className="font-medium text-ink">
-                          I have read and agree to Meru Art’s Terms of Service
-                        </span>{' '}
-                        (refund tiers, 2–4 week turnaround, and strict anti-NFT/anti-AI policy).
-                        {draft.tosAcceptedAt && (
-                          <span className="mt-1 block text-[10px] font-medium text-teal">
-                            ✓ Logged at {new Date(draft.tosAcceptedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
-                          </span>
-                        )}
-                      </div>
-                    </button>
+                        <span
+                          className={cn(
+                            'mt-0.5 grid size-5 shrink-0 place-items-center rounded-md border transition-colors',
+                            draft.tosAccepted ? 'border-ink bg-ink text-white' : 'border-ink/40 bg-paper group-hover:border-ink',
+                          )}
+                        >
+                          {draft.tosAccepted && <Check className="size-3.5" strokeWidth={3} />}
+                        </span>
+                        <div className="text-xs leading-snug text-ink-soft">
+                          <span className="font-semibold text-ink group-hover:text-coral transition-colors">
+                            I have read and agree to Meru Art’s Terms of Service
+                          </span>{' '}
+                          (refund tiers, 2–4 week turnaround, and strict anti-NFT/anti-AI policy).
+                          {draft.tosAcceptedAt && (
+                            <span className="mt-1 block text-[10px] font-medium text-teal">
+                              ✓ Logged at {new Date(draft.tosAcceptedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                            </span>
+                          )}
+                        </div>
+                      </button>
+                    </div>
+
+                    <div className="flex items-center justify-between border-t border-line/60 pt-2 text-[11px]">
+                      <span className="text-ink-mute">Want to review full terms first?</span>
+                      <button
+                        type="button"
+                        onClick={() => setIsTosModalOpen(true)}
+                        className="inline-flex items-center gap-1 font-semibold text-coral hover:text-ink transition-colors"
+                      >
+                        <FileText className="size-3" />
+                        <span>View Studio TOS Screen</span>
+                      </button>
+                    </div>
                   </div>
 
                   {step2Error && (
@@ -696,54 +855,81 @@ export function TierModal() {
                     />
                   </div>
 
-                  {/* Auth Gate + Recruiter Demo Mode */}
+                  {/* Auth Gate / Submit */}
                   <div className="space-y-2 rounded-2xl border border-line bg-cream/50 p-3.5">
                     <p className="flex items-center gap-1.5 text-xs font-semibold text-ink">
-                      <ShieldCheck className="size-4 text-teal" /> Sign in & Submit Request
+                      <ShieldCheck className="size-4 text-teal" /> {user ? 'Confirm & Submit Brief' : 'Sign in & Submit Request'}
                     </p>
                     <p className="text-xs text-ink-soft">
                       No payment is charged now. Your brief enters <strong>{studioSettings.status === 'waitlist' ? 'Studio Waitlist' : 'Pending Review'}</strong> first until Meru accepts your slot.
                     </p>
 
-                    <div className="space-y-2 pt-2">
-                      <button
-                        type="button"
-                        disabled={submitting}
-                        onClick={() => handleFinalSubmit('google')}
-                        className="flex w-full items-center justify-center gap-2.5 rounded-full bg-ink py-3 text-xs font-semibold text-white shadow-xs transition hover:bg-coral disabled:opacity-50"
-                      >
-                        <BrandIcon id="google" className="size-4 fill-white" />
-                        <span>
-                          {studioSettings.status === 'waitlist'
-                            ? 'Join Studio Waitlist with Google'
-                            : 'Submit Commission Brief with Google'}
-                        </span>
-                      </button>
-
-                      <button
-                        type="button"
-                        disabled={submitting}
-                        onClick={() => handleFinalSubmit('demo')}
-                        className="flex w-full items-center justify-center gap-1.5 rounded-full border border-dashed border-ink/35 bg-paper py-2 text-xs font-medium text-ink transition hover:border-ink hover:bg-cream disabled:opacity-50"
-                      >
-                        <Eye className="size-3.5 text-coral" />
-                        <span>Recruiter / Showcase Demo Submit (No Login Needed)</span>
-                      </button>
-                    </div>
-
-                    {submitError && (
-                      <div className="mt-2 flex items-center justify-between gap-2 rounded-xl bg-coral-soft px-3 py-2 text-xs font-medium text-coral">
-                        <span>{submitError}</span>
+                    {statusInfo.isClosed ? (
+                      <div className="mt-2 rounded-xl border border-coral/30 bg-coral-soft p-3 text-center">
+                        <p className="text-xs font-semibold text-coral">Submissions Currently Paused</p>
+                        <p className="mt-1 text-[11px] text-ink-soft">
+                          Meru Art Studio is closed for new requests. Your brief has been saved in your browser draft and can be submitted when slots reopen!
+                        </p>
                         <button
                           type="button"
-                          onClick={() => {
-                            closeDrawer();
-                            setActiveTab('track');
-                          }}
-                          className="shrink-0 rounded-full bg-ink px-2.5 py-1 text-[11px] text-white"
+                          disabled
+                          className="mt-3 flex w-full cursor-not-allowed items-center justify-center gap-2 rounded-full bg-ink/30 py-3 text-xs font-semibold text-white/70"
                         >
-                          View Active →
+                          Studio Closed · Submissions Disabled
                         </button>
+                      </div>
+                    ) : (
+                      <div className="space-y-2 pt-2">
+                        <button
+                          type="button"
+                          disabled={submitting}
+                          onClick={() => handleFinalSubmit('google')}
+                          className="flex w-full items-center justify-center gap-2.5 rounded-full bg-ink py-3 text-xs font-semibold text-white shadow-xs transition hover:bg-coral disabled:opacity-50"
+                        >
+                          {!user && <BrandIcon id="google" className="size-4 fill-white" />}
+                          <span>
+                            {user
+                              ? studioSettings.status === 'waitlist'
+                                ? 'Join Studio Waitlist'
+                                : 'Submit Commission Brief'
+                              : studioSettings.status === 'waitlist'
+                                ? 'Join Studio Waitlist with Google'
+                                : 'Submit Commission Brief with Google'}
+                          </span>
+                        </button>
+                      </div>
+                    )}
+
+                    {submitError && (
+                      <div className="mt-2 flex flex-col gap-2 rounded-xl bg-coral-soft p-3 text-xs font-medium text-coral">
+                        <div className="flex items-start justify-between gap-2">
+                          <span className="leading-relaxed">{submitError}</span>
+                          {submitError.includes('Pending Review') && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                closeDrawer();
+                                setActiveTab('track');
+                              }}
+                              className="shrink-0 rounded-full bg-ink px-2.5 py-1 text-[11px] text-white"
+                            >
+                              View Active →
+                            </button>
+                          )}
+                        </div>
+                        {(submitError.includes('session expired') ||
+                          submitError.includes('sign in again') ||
+                          submitError.includes('foreign key') ||
+                          submitError.includes('reset in the database')) && (
+                          <button
+                            type="button"
+                            onClick={() => handleFinalSubmit('google')}
+                            className="mt-1 inline-flex items-center justify-center gap-2 rounded-full bg-ink py-2 text-xs font-semibold text-white shadow-xs transition hover:bg-coral"
+                          >
+                            <BrandIcon id="google" className="size-3.5 fill-white" />
+                            <span>Sign In Fresh with Google</span>
+                          </button>
+                        )}
                       </div>
                     )}
                   </div>
@@ -817,6 +1003,22 @@ export function TierModal() {
         </motion.div>
       )}
     </AnimatePresence>
+
+    <TosModal
+      isOpen={isTosModalOpen}
+      onClose={() => setIsTosModalOpen(false)}
+      isAccepted={draft.tosAccepted}
+      acceptedAt={draft.tosAcceptedAt}
+      onAcceptAndClose={() => {
+        updateDraft({
+          tosAccepted: true,
+          tosAcceptedAt: new Date().toISOString(),
+        });
+        if (step2Error?.includes('Terms of Service')) setStep2Error(null);
+        setIsTosModalOpen(false);
+      }}
+    />
+    </>
   );
 }
 

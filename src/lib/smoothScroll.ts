@@ -8,7 +8,14 @@ let lenis: Lenis | null = null;
 
 export function initSmoothScroll() {
   if (lenis || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return () => {};
-  lenis = new Lenis({ duration: 1.15, easing: (t) => Math.min(1, 1.001 - Math.pow(2, -10 * t)), smoothWheel: true });
+  lenis = new Lenis({
+    duration: 1.15,
+    easing: (t) => Math.min(1, 1.001 - Math.pow(2, -10 * t)),
+    smoothWheel: true,
+    prevent: (node: HTMLElement) =>
+      node?.hasAttribute?.('data-lenis-prevent') ||
+      Boolean(node?.closest?.('[data-lenis-prevent]')),
+  });
 
   let raf = 0;
   const loop = (time: number) => {

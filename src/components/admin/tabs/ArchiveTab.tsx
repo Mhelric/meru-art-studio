@@ -6,9 +6,11 @@ import {
   XCircle,
   CheckCircle2,
   AlertCircle,
+  Eye,
 } from 'lucide-react';
 import type { SubmittedOrder } from '@/types';
 import { getTier, formatUsd, cn } from '@/lib/utils';
+import { ArchiveDetailDialog } from '../dialogs/ArchiveDetailDialog';
 
 interface ArchiveTabProps {
   orders: SubmittedOrder[];
@@ -19,6 +21,7 @@ type ArchiveFilter = 'all' | 'declined' | 'completed' | 'cancelled';
 
 export function ArchiveTab({ orders, onOpenDeleteDialog }: ArchiveTabProps) {
   const [filter, setFilter] = useState<ArchiveFilter>('all');
+  const [detailOrder, setDetailOrder] = useState<SubmittedOrder | null>(null);
 
   const filteredOrders = useMemo(() => {
     if (filter === 'all') return orders;
@@ -176,24 +179,41 @@ export function ArchiveTab({ orders, onOpenDeleteDialog }: ArchiveTabProps) {
                   </div>
                 </div>
 
-                {/* Purge button */}
-                <div className="mt-5 flex items-center justify-between border-t border-line/70 pt-3">
+                {/* Card action buttons */}
+                <div className="mt-5 flex flex-wrap items-center justify-between gap-2 border-t border-line/70 pt-3">
                   <span className="text-[11px] text-ink-mute">
                     {order.wips.length} WIPs · {order.messages.length} messages
                   </span>
-                  <button
-                    type="button"
-                    onClick={() => onOpenDeleteDialog(order)}
-                    className="inline-flex items-center gap-1.5 rounded-full border border-coral/30 bg-coral-soft/40 px-3.5 py-1.5 text-xs font-semibold text-coral transition hover:bg-coral hover:text-white"
-                  >
-                    <Trash2 className="size-3.5" /> Purge Order Forever
-                  </button>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setDetailOrder(order)}
+                      className="inline-flex items-center gap-1.5 rounded-full border border-line bg-canvas px-3.5 py-1.5 text-xs font-semibold text-ink transition hover:border-ink hover:bg-cream"
+                    >
+                      <Eye className="size-3.5 text-teal" /> View Details
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => onOpenDeleteDialog(order)}
+                      className="inline-flex items-center gap-1.5 rounded-full border border-coral/30 bg-coral-soft/40 px-3.5 py-1.5 text-xs font-semibold text-coral transition hover:bg-coral hover:text-white"
+                    >
+                      <Trash2 className="size-3.5" /> Purge
+                    </button>
+                  </div>
                 </div>
               </div>
             );
           })}
         </div>
       )}
+
+      {/* Archive Order Full Read-Only Detail Dialog */}
+      <ArchiveDetailDialog
+        order={detailOrder}
+        isOpen={Boolean(detailOrder)}
+        onClose={() => setDetailOrder(null)}
+        onOpenDeleteDialog={onOpenDeleteDialog}
+      />
     </div>
   );
 }

@@ -25,6 +25,8 @@ export function ArtImage({ slug, alt, size = 'sm', className, imgClassName, keep
   const meta = MANIFEST[slug];
   const [loaded, setLoaded] = useState(false);
 
+  const isContain = imgClassName?.includes('object-contain');
+
   return (
     <div
       className={cn('relative overflow-hidden bg-cream', className)}
@@ -53,7 +55,8 @@ export function ArtImage({ slug, alt, size = 'sm', className, imgClassName, keep
         onLoad={() => setLoaded(true)}
         onContextMenu={(e) => e.preventDefault()}
         className={cn(
-          'relative size-full object-cover transition-[opacity,transform] duration-700 ease-out-expo',
+          'relative transition-[opacity,transform] duration-700 ease-out-expo',
+          !isContain && 'size-full object-cover',
           loaded ? 'opacity-100' : 'opacity-0',
           imgClassName,
         )}

@@ -1,7 +1,9 @@
+import { useState, useEffect } from 'react';
 import { ArrowUpRight, Check, Sparkles } from 'lucide-react';
 import { PORTFOLIO } from '@/data/artist';
 import { useStudio } from '@/context/StudioContext';
-import { ACCENT_CLASSES, TIER_ACCENT, cn, formatUsd } from '@/lib/utils';
+import { ACCENT_CLASSES, TIER_ACCENT, cn } from '@/lib/utils';
+import { formatDualCurrency } from '@/lib/currency';
 import { SectionHeading } from '@/components/ui/SectionHeading';
 import { Reveal } from '@/components/ui/Reveal';
 import { ArtImage } from './ArtImage';
@@ -16,7 +18,19 @@ const TIER_SAMPLE: Record<string, { slug: string; pos: string }> = {
 };
 
 export function PricingCards() {
-  const { commissionTier, selectedTier, tiers, studioSettings } = useStudio();
+  const { commissionTier, tiers, studioSettings, currency } = useStudio();
+  const [highlightIdx, setHighlightIdx] = useState(0);
+  const [hoveredTier, setHoveredTier] = useState<string | null>(null);
+
+  // Auto-rotate spotlight tier from left to right every 3 seconds
+  useEffect(() => {
+    if (hoveredTier !== null || tiers.length === 0) return;
+    const interval = setInterval(() => {
+      setHighlightIdx((prev) => (prev + 1) % tiers.length);
+    }, 3000);
+    return () => clearInterval(interval);
+  }, [hoveredTier, tiers.length]);
+
   const addons = [
     { label: 'NSFW', value: `+${Math.round(studioSettings.multipliers.nsfw * 100)}%`, note: 'Soft / tasteful' },
     { label: 'Soft Furry', value: `+${Math.round(studioSettings.multipliers.softFurry * 100)}%`, note: 'Kemonomimi & anthros' },
@@ -24,7 +38,7 @@ export function PricingCards() {
   ];
 
   return (
-    <section id="pricing" className="mt-20 scroll-mt-28 sm:mt-28">
+    <section id="pricing" className="mt-16 scroll-mt-20 sm:mt-24">
       <SectionHeading
         eyebrow="Commission Tiers"
         title="Simple, transparent pricing"
@@ -34,19 +48,24 @@ export function PricingCards() {
       {/* Responsive grid: 1 col on small phones, 2 cols on sm, 3 on md, 5 on xl — equal-height cards */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-5">
         {tiers.map((tier, i) => {
-          const selected = selectedTier === tier.id;
+          const isHighlighted = hoveredTier ? hoveredTier === tier.id : highlightIdx === i;
           const accent = ACCENT_CLASSES[TIER_ACCENT[tier.id]];
           const sample = TIER_SAMPLE[tier.id] ?? { slug: PORTFOLIO[0].slug, pos: 'object-center' };
+          const dual = formatDualCurrency(tier.basePriceUsd, currency, studioSettings.usdToPhpRate);
 
           return (
             <Reveal key={tier.id} delay={i * 0.05} className="h-full">
               <button
                 type="button"
                 onClick={() => commissionTier(tier.id)}
-                aria-label={`Commission ${tier.label} starting at ${formatUsd(tier.basePriceUsd)}`}
+                onMouseEnter={() => setHoveredTier(tier.id)}
+                onMouseLeave={() => setHoveredTier(null)}
+                aria-label={`Commission ${tier.label} starting at ${dual.primary}`}
                 className={cn(
-                  'group card flex h-full w-full cursor-pointer flex-col overflow-hidden p-3 text-left transition-all duration-300 select-none hover:-translate-y-1 hover:border-ink/35 active:scale-[0.99] focus:outline-none focus-visible:ring-2 focus-visible:ring-ink',
-                  selected && `ring-2 ${accent.ring} border-ink`,
+                  'group card flex h-full w-full cursor-pointer flex-col overflow-hidden p-3 text-left transition-all duration-300 select-none hover:-translate-y-1 hover:border-ink/40 active:scale-[0.99] focus:outline-none focus-visible:ring-2 focus-visible:ring-ink',
+                  isHighlighted
+                    ? `ring-2 ${accent.ring} border-ink shadow-md bg-paper`
+                    : 'border-line/70 bg-paper/90 opacity-90 hover:opacity-100',
                 )}
               >
                 {/* Sample preview: horizontal split on mobile for compact scanning, vertical stack on sm+ */}
@@ -66,21 +85,29 @@ export function PricingCards() {
                   </div>
 
                   <div className="min-w-0 flex-1 sm:px-1.5 sm:pt-3.5">
-                    <div className="flex items-start justify-between gap-2">
-                      <h3 className="font-display text-2xl font-semibold text-ink">{tier.label}</h3>
-                      {selected && (
-                        <span className="shrink-0 rounded-full bg-coral-soft px-2 py-0.5 text-[10px] font-semibold text-coral">
-                          Active
-                        </span>
-                      )}
+                    <div className="flex h-8 items-center justify-between gap-1.5">
+                      <h3 className="truncate font-display text-xl sm:text-2xl font-semibold text-ink">{tier.label}</h3>
+                      <span
+                        className={cn(
+                          'shrink-0 rounded-full bg-coral px-2.5 py-0.5 text-[9px] font-bold text-white shadow-xs transition-opacity duration-300',
+                          isHighlighted ? 'opacity-100 animate-pulse' : 'opacity-0 pointer-events-none select-none',
+                        )}
+                      >
+                        ✦ Spotlight
+                      </span>
                     </div>
-                    <p className="mt-0.5 font-display text-3xl font-semibold text-ink">
-                      {formatUsd(tier.basePriceUsd)}
-                      <span className="ml-1 font-sans text-xs font-normal text-ink-mute">
+                    <div className="mt-1 flex flex-wrap items-baseline gap-1.5">
+                      <p className="font-display text-2xl sm:text-3xl font-semibold text-ink">
+                        {dual.primary}
+                      </p>
+                      <span className="text-[11px] sm:text-xs font-medium text-ink-mute">
+                        {dual.secondary}
+                      </span>
+                      <span className="ml-auto font-sans text-xs font-normal text-ink-mute">
                         {tier.priceNote ? `/ ${tier.priceNote}` : 'base'}
                       </span>
-                    </p>
-                    <p className="mt-1.5 line-clamp-2 text-xs leading-relaxed text-ink-soft sm:line-clamp-none sm:text-sm">
+                    </div>
+                    <p className="mt-1.5 line-clamp-2 h-10 sm:h-11 text-xs leading-relaxed text-ink-soft sm:text-sm">
                       {tier.description}
                     </p>
                   </div>
@@ -99,7 +126,7 @@ export function PricingCards() {
                   <span
                     className={cn(
                       'flex w-full items-center justify-center gap-1.5 rounded-full px-4 py-2.5 text-xs font-medium whitespace-nowrap transition-colors sm:text-sm',
-                      selected
+                      isHighlighted
                         ? 'bg-coral text-white'
                         : 'bg-ink text-white group-hover:bg-coral',
                     )}

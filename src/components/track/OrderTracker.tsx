@@ -2,7 +2,7 @@ import { motion } from 'framer-motion';
 import {
   AlertCircle,
   AlertTriangle,
-  Bell,
+  Brush,
   Check,
   CheckCircle2,
   Clock,
@@ -16,14 +16,13 @@ import {
   Printer,
   Receipt,
   RotateCcw,
-  Send,
   ShieldAlert,
+  ShieldCheck,
   Sparkles,
   Unlock,
-  Volume2,
-  VolumeX,
   X,
   XCircle,
+  CreditCard,
 } from 'lucide-react';
 import { useMemo, useRef, useState, type ChangeEvent, type FormEvent } from 'react';
 import { STAGE_STEPS } from '@/data/orders';
@@ -39,7 +38,14 @@ import { isAudioNotificationEnabled, setAudioNotificationEnabled, playNotificati
 import { requestNotificationPermission } from '@/lib/notifications';
 import { useUpdateCommissionBriefMutation, useRequestCancellationMutation } from '@/lib/queries';
 import { printOrderInvoice } from '@/lib/invoice';
-import type { AttachmentKind, SubmittedOrder, WipUploadItem, CommissionStage } from '@/types';
+import { OrderChatWidget } from './OrderChatWidget';
+import { PaymentDetailsModal } from './dialogs/PaymentDetailsModal';
+import { MilestoneSignoffModal } from './dialogs/MilestoneSignoffModal';
+import { ClientArtworkAcceptanceModal } from './dialogs/ClientArtworkAcceptanceModal';
+import { WipLightboxMarkupModal } from './dialogs/WipLightboxMarkupModal';
+import { MasterDeliverableVault } from './MasterDeliverableVault';
+import { getRevisionAllowance, type SignoffChecklist } from '@/lib/revisionWorkflow';
+import type { SubmittedOrder, WipUploadItem, ClientReview } from '@/types';
 
 /**
  * Phase 4, 6B & 6E: Authenticated Client "Pizza-Tracker" Order Room, Payment Gates & Realtime Chat.
@@ -58,26 +64,32 @@ export function OrderTracker() {
     submittedOrders,
     activeOrderId,
     setActiveOrderId,
-    setOrderStage,
     uploadPaymentReceipt,
-    approveOrderSketch,
+    signoffMilestone,
+    requestWipRevision,
+    completeOrderWithReview,
     sendOrderMessage,
     openDrawer,
     showToast,
     user,
-    isDemoMode,
     isLoadingOrders,
     signInWithGoogle,
+    isArtistAdmin,
+    setActiveTab,
+    studioSettings,
   } = useStudio();
 
-  const [chatInput, setChatInput] = useState('');
-  const [attachmentKind, setAttachmentKind] = useState<AttachmentKind>('receipt');
   const receiptInputRef = useRef<HTMLInputElement | null>(null);
-  const chatFileInputRef = useRef<HTMLInputElement | null>(null);
   const revisionFileInputRef = useRef<HTMLInputElement | null>(null);
   const [pendingReceiptType, setPendingReceiptType] = useState<'deposit' | 'final'>('deposit');
   const [downloadingWipId, setDownloadingWipId] = useState<string | null>(null);
   const [soundActive, setSoundActive] = useState(() => isAudioNotificationEnabled());
+  const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
+
+  // Formal Milestone Sign-off Gate State
+  const [signoffWip, setSignoffWip] = useState<WipUploadItem | null>(null);
+  const [isSignoffModalOpen, setIsSignoffModalOpen] = useState(false);
+  const [afterSignoffOpenPayment, setAfterSignoffOpenPayment] = useState(false);
 
   // Phase 6E: Interactive Client Modals
   const [isEditBriefOpen, setIsEditBriefOpen] = useState(false);
@@ -90,8 +102,10 @@ export function OrderTracker() {
   const [revisionWip, setRevisionWip] = useState<WipUploadItem | null>(null);
   const [revisionCategory, setRevisionCategory] = useState('Pose & Gesture');
   const [revisionNotes, setRevisionNotes] = useState('');
+  const [revisionScale, setRevisionScale] = useState<'minor' | 'major'>('minor');
   const [revisionRedlineFile, setRevisionRedlineFile] = useState<File | null>(null);
   const [isSendingRevision, setIsSendingRevision] = useState(false);
+  const [lightboxWip, setLightboxWip] = useState<WipUploadItem | null>(null);
 
   const [isCancelModalOpen, setIsCancelModalOpen] = useState(false);
   const [cancelReason, setCancelReason] = useState('');
@@ -104,6 +118,66 @@ export function OrderTracker() {
     () => submittedOrders.find((o) => o.id === activeOrderId) ?? submittedOrders[0],
     [submittedOrders, activeOrderId],
   );
+
+  const revisionAllowance = useMemo(() => {
+    if (!order) {
+      return {
+        usedCount: 0,
+        maxAllowed: 2,
+        remainingCount: 2,
+        isExhausted: false,
+        canRequestFree: true,
+        isSketchPhase: false,
+        isUnlimitedFree: false,
+        minorFixesCount: 0,
+        majorRevisionsCount: 0,
+      };
+    }
+    return getRevisionAllowance(order);
+  }, [order]);
+
+  const handleConfirmMilestoneSignoff = async (
+    checklist: SignoffChecklist,
+    signerName: string,
+  ) => {
+    if (!order) return;
+    await signoffMilestone(order.id, signoffWip?.id, checklist, signerName);
+    setIsSignoffModalOpen(false);
+    setSignoffWip(null);
+    if (afterSignoffOpenPayment) {
+      setAfterSignoffOpenPayment(false);
+      setIsPaymentModalOpen(true);
+    }
+  };
+
+  // Phase 8: Final Artwork Acceptance & Tipping Gate
+  const [isAcceptanceModalOpen, setIsAcceptanceModalOpen] = useState(false);
+
+  const handleConfirmFinalAcceptance = async (
+    tipAmountUsd: number,
+    thankYouMessage: string,
+    review?: ClientReview,
+  ) => {
+    if (!order) return;
+    await completeOrderWithReview(order.id, tipAmountUsd, thankYouMessage, review);
+  };
+
+  const [isChatOpen, setIsChatOpen] = useState(false);
+  const [orderFilter, setOrderFilter] = useState<'all' | 'active' | 'past'>('all');
+
+  const activeOrders = useMemo(
+    () => submittedOrders.filter((o) => o.stage !== 'completed' && o.stage !== 'declined' && o.stage !== 'cancelled'),
+    [submittedOrders],
+  );
+  const pastOrders = useMemo(
+    () => submittedOrders.filter((o) => o.stage === 'completed' || o.stage === 'declined' || o.stage === 'cancelled'),
+    [submittedOrders],
+  );
+  const displayedOrders = useMemo(() => {
+    if (orderFilter === 'active') return activeOrders;
+    if (orderFilter === 'past') return pastOrders;
+    return submittedOrders;
+  }, [orderFilter, activeOrders, pastOrders, submittedOrders]);
 
   // Phase 6D: Realtime WebSocket Subscription for active commission
   useCommissionRealtime(order?.id, user?.id);
@@ -127,7 +201,7 @@ export function OrderTracker() {
   };
 
   // 1. Loading State
-  if (isLoadingOrders && !isDemoMode) {
+  if (isLoadingOrders) {
     return (
       <section className="pt-32 pb-16">
         <div className="mx-auto max-w-md text-center">
@@ -139,7 +213,7 @@ export function OrderTracker() {
   }
 
   // 2. Logged-out state
-  if (!user && !isDemoMode) {
+  if (!user) {
     return <LoggedOutTrackView onSignIn={signInWithGoogle} />;
   }
 
@@ -150,8 +224,6 @@ export function OrderTracker() {
 
   if (!order) return null;
 
-  // STRICT Phase 6E: Demo bar and mock controls strictly active in demo showcase mode
-  const isDemo = isDemoMode;
   const tier = getTier(order.tier);
   const accent = ACCENT_CLASSES[TIER_ACCENT[order.tier]];
   const currentStepIdx = STAGE_STEPS.findIndex((s) => s.id === order.stage);
@@ -167,48 +239,15 @@ export function OrderTracker() {
 
   const handleReceiptFile = async (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (!file) return;
+    if (!file || !user) return;
 
-    if (user && !isDemo) {
-      showToast('Uploading payment receipt to secure vault...');
-      const { path, error } = await uploadReceiptFile(user.id, order.id, file);
-      if (error || !path) {
-        showToast(`Upload failed: ${error ?? 'Unknown error'}`);
-      } else {
-        uploadPaymentReceipt(order.id, pendingReceiptType, path);
-      }
+    showToast('Uploading payment receipt to secure vault...');
+    const { path, error } = await uploadReceiptFile(user.id, order.id, file);
+    if (error || !path) {
+      showToast(`Upload failed: ${error ?? 'Unknown error'}`);
     } else {
-      const url = URL.createObjectURL(file);
-      uploadPaymentReceipt(order.id, pendingReceiptType, url);
+      uploadPaymentReceipt(order.id, pendingReceiptType, path);
     }
-    e.target.value = '';
-  };
-
-  const handleChatFile = async (e: ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    if (user && !isDemo) {
-      showToast('Uploading chat attachment...');
-      const { path, error } = await uploadChatAttachment(user.id, order.id, file);
-      if (error || !path) {
-        showToast(`Upload failed: ${error ?? 'Unknown error'}`);
-      } else {
-        sendOrderMessage(
-          order.id,
-          chatInput.trim() || `Attached ${attachmentKind}: ${file.name}`,
-          { attachmentUrl: path, attachmentKind },
-        );
-      }
-    } else {
-      const url = URL.createObjectURL(file);
-      sendOrderMessage(
-        order.id,
-        chatInput.trim() || `Attached ${attachmentKind}: ${file.name}`,
-        { attachmentUrl: url, attachmentKind },
-      );
-    }
-    setChatInput('');
     e.target.value = '';
   };
 
@@ -245,13 +284,6 @@ export function OrderTracker() {
     }
   };
 
-  const handleChatSubmit = (e: FormEvent) => {
-    e.preventDefault();
-    if (!chatInput.trim()) return;
-    sendOrderMessage(order.id, chatInput.trim());
-    setChatInput('');
-  };
-
   // Phase 6E: Brief Edit Handler
   const openEditBriefModal = () => {
     setEditBriefData({
@@ -264,14 +296,7 @@ export function OrderTracker() {
 
   const handleSaveBrief = async (e: FormEvent) => {
     e.preventDefault();
-    if (isDemo || !user) {
-      order.characterName = editBriefData.characterName;
-      order.poseAndVibe = editBriefData.poseAndVibe;
-      order.backgroundNotes = editBriefData.backgroundNotes;
-      showToast('Brief details updated in demo mode.');
-      setIsEditBriefOpen(false);
-      return;
-    }
+    if (!user) return;
 
     try {
       const res = await updateBriefMutation.mutateAsync({
@@ -284,8 +309,9 @@ export function OrderTracker() {
         showToast('Brief details updated successfully!');
         setIsEditBriefOpen(false);
       }
-    } catch (err: any) {
-      showToast(`Failed to update brief: ${err?.message ?? 'Error'}`);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Error updating brief';
+      showToast(msg);
     }
   };
 
@@ -294,34 +320,33 @@ export function OrderTracker() {
     setRevisionWip(wip);
     setRevisionCategory('Pose & Gesture');
     setRevisionNotes('');
+    setRevisionScale('minor');
     setRevisionRedlineFile(null);
   };
 
   const handleSubmitRevision = async (e: FormEvent) => {
     e.preventDefault();
-    if (!revisionWip || !revisionNotes.trim()) return;
+    if (!order || !revisionWip || !revisionNotes.trim()) return;
 
     setIsSendingRevision(true);
     let redlinePath: string | undefined = undefined;
 
     try {
-      if (revisionRedlineFile && user && !isDemo) {
+      if (revisionRedlineFile && user) {
         showToast('Uploading redline sketch...');
         const { path, error } = await uploadChatAttachment(user.id, order.id, revisionRedlineFile);
         if (!error && path) {
           redlinePath = path;
         }
-      } else if (revisionRedlineFile) {
-        redlinePath = URL.createObjectURL(revisionRedlineFile);
       }
 
-      const messageBody = `[Revision Request · ${revisionCategory}]: ${revisionNotes.trim()}`;
-      sendOrderMessage(order.id, messageBody, {
+      await requestWipRevision(order.id, revisionWip.id, {
+        category: revisionCategory,
+        notes: revisionNotes.trim(),
+        scale: revisionAllowance.isSketchPhase ? 'minor' : revisionScale,
         attachmentUrl: redlinePath,
-        attachmentKind: 'redline',
       });
 
-      showToast('Revision request sent to Meru!');
       setRevisionWip(null);
     } catch (err: any) {
       showToast(`Failed to send revision: ${err?.message ?? 'Error'}`);
@@ -333,20 +358,14 @@ export function OrderTracker() {
   // Phase 6E: Cancellation Handler
   const handleSubmitCancellation = async (e: FormEvent) => {
     e.preventDefault();
+    if (!user) return;
+    if (cancelReason.trim().length < 15) {
+      showToast('Please provide a valid, descriptive reason (at least 15 characters) for cancellation.');
+      return;
+    }
     setIsCancelling(true);
 
     try {
-      if (isDemo || !user) {
-        sendOrderMessage(
-          order.id,
-          `Cancellation & Refund Request: ${cancelReason.trim() || 'Client submitted formal cancellation request.'}`,
-          { attachmentKind: 'other' },
-        );
-        showToast('Cancellation request recorded in demo mode.');
-        setIsCancelModalOpen(false);
-        return;
-      }
-
       const res = await requestCancellationMutation.mutateAsync({
         commissionId: order.id,
         reason: cancelReason,
@@ -355,11 +374,12 @@ export function OrderTracker() {
       if (res.error) {
         showToast(`Request failed: ${res.error}`);
       } else {
-        showToast('Cancellation request sent to Meru. You will be notified regarding refund processing.');
+        showToast('Cancellation request submitted to Meru! If approved, eligible refunds are processed within 3–5 business days.');
         setIsCancelModalOpen(false);
       }
-    } catch (err: any) {
-      showToast(`Cancellation error: ${err?.message ?? 'Error'}`);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Error requesting cancellation';
+      showToast(msg);
     } finally {
       setIsCancelling(false);
     }
@@ -373,9 +393,11 @@ export function OrderTracker() {
     order.finalPaid,
   );
 
+  const cancellationStatus = useMemo(() => getActiveCancellationRequest(order), [order]);
+
   return (
-    <section className="pt-28 pb-12 sm:pt-32">
-      {/* Hidden file inputs for Receipt Gate & Chat Attachment */}
+    <section className="pt-32 pb-8 sm:pt-32 sm:pb-12">
+      {/* Hidden file input for Receipt Gate */}
       <input
         ref={receiptInputRef}
         type="file"
@@ -383,100 +405,145 @@ export function OrderTracker() {
         onChange={handleReceiptFile}
         className="hidden"
       />
-      <input
-        ref={chatFileInputRef}
-        type="file"
-        accept="image/*"
-        onChange={handleChatFile}
-        className="hidden"
-      />
+
+      {/* Admin Preview Mode Banner */}
+      {isArtistAdmin && (
+        <div className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-coral/30 bg-coral-soft/90 px-4 py-3 text-xs shadow-xs">
+          <div className="flex items-center gap-2 text-ink">
+            <span className="rounded-full bg-coral px-2.5 py-0.5 text-[10px] font-bold text-white uppercase tracking-wider">
+              Admin Preview
+            </span>
+            <span className="font-medium">
+              You are inspecting the Client Tracker Room for <strong>#{orderDisplayCode}</strong> ({order.clientContact || 'Client'}).
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setActiveTab('admin')}
+            className="inline-flex items-center gap-1.5 rounded-full bg-ink px-3.5 py-1.5 text-xs font-semibold text-white shadow-xs transition hover:bg-coral"
+          >
+            <span>← Return to Admin Pipeline</span>
+          </button>
+        </div>
+      )}
 
       {/* Header + Order Switcher + Recruiter Stage Simulator */}
       <div className="mb-6 flex flex-col justify-between gap-4 lg:flex-row lg:items-end">
         <div>
           <SectionHeading
-            eyebrow={isDemo ? 'Demo Showcase Mode' : 'Client Workspace · Supabase Connected'}
+            eyebrow="Client Workspace"
             title="Live commission tracker & order room"
             subtitle="Follow your artwork from initial brief to high-resolution download, upload payment receipts, and chat with Meru in real time."
           />
         </div>
 
         {/* Order Selector + New Request CTA */}
-        <div className="mb-10 flex flex-wrap items-center gap-2">
-          {submittedOrders.map((o) => {
-            const active = o.id === order.id;
-            const code = o.orderCode || o.id.slice(0, 8).toUpperCase();
-            return (
+        <div className="mb-6 flex flex-col gap-2.5 sm:items-end">
+          {submittedOrders.length > 1 && (
+            <div className="inline-flex rounded-full border border-line bg-canvas p-1 text-xs">
               <button
-                key={o.id}
                 type="button"
-                onClick={() => setActiveOrderId(o.id)}
+                onClick={() => setOrderFilter('all')}
                 className={cn(
-                  'rounded-full px-3.5 py-2 text-xs font-medium transition-all',
-                  active
-                    ? 'bg-ink text-white shadow-xs'
-                    : 'border border-line bg-paper text-ink-soft hover:border-ink/30 hover:text-ink',
+                  'rounded-full px-3 py-1 font-medium transition',
+                  orderFilter === 'all' ? 'bg-ink text-white shadow-xs' : 'text-ink-mute hover:text-ink',
                 )}
               >
-                #{code} · {getTier(o.tier).label}
+                All ({submittedOrders.length})
               </button>
-            );
-          })}
-          <button
-            type="button"
-            onClick={() => openDrawer({ step: 1 })}
-            className="inline-flex items-center gap-1.5 rounded-full border border-dashed border-ink/35 bg-canvas px-3.5 py-2 text-xs font-medium text-ink transition hover:border-ink hover:bg-cream"
-          >
-            <Sparkles className="size-3.5 text-coral" /> + New Quote
-          </button>
+              <button
+                type="button"
+                onClick={() => setOrderFilter('active')}
+                className={cn(
+                  'rounded-full px-3 py-1 font-medium transition',
+                  orderFilter === 'active' ? 'bg-ink text-white shadow-xs' : 'text-ink-mute hover:text-ink',
+                )}
+              >
+                Active ({activeOrders.length})
+              </button>
+              <button
+                type="button"
+                onClick={() => setOrderFilter('past')}
+                className={cn(
+                  'rounded-full px-3 py-1 font-medium transition',
+                  orderFilter === 'past' ? 'bg-ink text-white shadow-xs' : 'text-ink-mute hover:text-ink',
+                )}
+              >
+                Past & Delivered ({pastOrders.length})
+              </button>
+            </div>
+          )}
+
+          <div className="flex flex-wrap items-center gap-2">
+            {displayedOrders.map((o) => {
+              const active = o.id === order.id;
+              const code = o.orderCode || o.id.slice(0, 8).toUpperCase();
+              return (
+                <button
+                  key={o.id}
+                  type="button"
+                  onClick={() => setActiveOrderId(o.id)}
+                  className={cn(
+                    'flex items-center gap-2 rounded-full px-3.5 py-1.5 text-xs font-medium transition-all',
+                    active
+                      ? 'bg-ink text-white shadow-xs'
+                      : 'border border-line bg-paper text-ink-soft hover:border-ink/30 hover:text-ink',
+                  )}
+                >
+                  <span
+                    className={cn(
+                      'size-2 rounded-full',
+                      o.stage === 'completed'
+                        ? 'bg-teal'
+                        : o.stage === 'declined' || o.stage === 'cancelled'
+                          ? 'bg-ink-mute'
+                          : o.stage === 'awaiting_deposit' || o.stage === 'sketch_approval'
+                            ? 'bg-coral'
+                            : 'bg-mustard',
+                    )}
+                  />
+                  <span>#{code} · {getTier(o.tier).label}</span>
+                  {o.characterName && (
+                    <span className="opacity-70 max-w-[85px] truncate">({o.characterName})</span>
+                  )}
+                </button>
+              );
+            })}
+            <button
+              type="button"
+              onClick={() => openDrawer({ step: 1 })}
+              className="inline-flex items-center gap-1.5 rounded-full border border-dashed border-ink/35 bg-canvas px-3.5 py-1.5 text-xs font-medium text-ink transition hover:border-ink hover:bg-cream"
+            >
+              <Sparkles className="size-3.5 text-coral" /> + New Quote
+            </button>
+          </div>
         </div>
       </div>
-
-      {/* Interactive Demo Stage Switcher Bar (strictly for demo showcase orders) */}
-      {isDemo && (
-        <Reveal className="mb-5 rounded-2xl border border-dashed border-ink/25 bg-cream/60 p-3 sm:px-4">
-          <div className="flex flex-col justify-between gap-2 sm:flex-row sm:items-center">
-            <div className="flex items-center gap-2 text-xs text-ink">
-              <Eye className="size-4 shrink-0 text-coral" />
-              <span>
-                <strong>Portfolio Interactive Preview:</strong> Click any stage below to test how the payment gates, watermark shield, and high-res download behave:
-              </span>
-            </div>
-            <div className="no-scrollbar flex gap-1 overflow-x-auto pb-0.5 sm:pb-0">
-              {STAGE_STEPS.map((s, idx) => {
-                const active = s.id === order.stage;
-                return (
-                  <button
-                    key={s.id}
-                    type="button"
-                    onClick={() => setOrderStage(order.id, s.id)}
-                    className={cn(
-                      'shrink-0 rounded-full px-2.5 py-1 text-xs font-medium transition-colors',
-                      active ? 'bg-coral text-white' : 'bg-paper text-ink-soft hover:text-ink',
-                    )}
-                  >
-                    {idx + 1}. {s.shortLabel}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        </Reveal>
-      )}
 
       {/* 1. TOP ACTION BANNER */}
       <Reveal delay={0.05}>
         <TopActionBanner
           order={order}
-          isDemo={isDemo}
           remainingUsd={remainingUsd}
-          onSimulateArtistApprove={() => {
-            setOrderStage(order.id, 'awaiting_deposit');
-            showToast('Brief approved! Upfront deposit gate unlocked.');
-          }}
           onUploadDeposit={() => triggerReceiptUpload('deposit')}
-          onApproveSketchAndPay={() => triggerReceiptUpload('final')}
-          onApproveSketchOnly={() => approveOrderSketch(order.id)}
+          onApproveSketchAndPay={() => {
+            const sketchWip = order.wips.find((w) => w.stage === 'sketch_approval') ?? order.wips[0] ?? null;
+            setSignoffWip(sketchWip);
+            setAfterSignoffOpenPayment(true);
+            setIsSignoffModalOpen(true);
+          }}
+          onApproveSketchOnly={() => {
+            const sketchWip = order.wips.find((w) => w.stage === 'sketch_approval') ?? order.wips[0] ?? null;
+            setSignoffWip(sketchWip);
+            setAfterSignoffOpenPayment(false);
+            setIsSignoffModalOpen(true);
+          }}
+          onCompleteOrder={() => {
+            setIsAcceptanceModalOpen(true);
+          }}
+          onOpenDrawer={() => openDrawer({ step: 1 })}
+          onOpenPaymentModal={() => setIsPaymentModalOpen(true)}
+          refundDetails={refundDetails}
         />
       </Reveal>
 
@@ -489,7 +556,11 @@ export function OrderTracker() {
               Order #{orderDisplayCode} · {tier.label}
             </span>
             <h3 className="font-display text-xl font-semibold text-ink sm:text-2xl">
-              {currentStep.fullLabel}
+              {order.stage === 'declined'
+                ? 'Commission Declined'
+                : order.stage === 'cancelled'
+                  ? 'Commission Cancelled'
+                  : currentStep.fullLabel}
             </h3>
           </div>
 
@@ -504,93 +575,181 @@ export function OrderTracker() {
               Target: <strong className="text-ink">{order.estEndDate ? formatShortDate(order.estEndDate) : 'TBD'}</strong>
             </span>
 
-            {/* Quick Actions: Invoice & Cancellation */}
+            {/* Quick Actions: Invoice, Payment Details & Cancellation */}
             <div className="flex items-center gap-1.5 pl-2">
               <button
                 type="button"
-                onClick={() => printOrderInvoice(order)}
+                onClick={() => setIsPaymentModalOpen(true)}
+                className="inline-flex items-center gap-1 rounded-full border border-line bg-paper px-2.5 py-1 text-xs font-medium text-ink transition hover:border-ink/40 hover:bg-cream"
+                title="View PayPal, GCash QR, and Bank transfer details"
+              >
+                <CreditCard className="size-3 text-coral" /> Payment Details
+              </button>
+
+              <button
+                type="button"
+                onClick={() =>
+                  printOrderInvoice(order, {
+                    paymentDetails: studioSettings.paymentDetails,
+                    usdToPhpRate: studioSettings.usdToPhpRate,
+                  })
+                }
                 className="inline-flex items-center gap-1 rounded-full border border-line bg-paper px-2.5 py-1 text-xs font-medium text-ink transition hover:border-ink/40 hover:bg-cream"
                 title="Download or print commission receipt"
               >
                 <Printer className="size-3 text-coral" /> Invoice
               </button>
 
-              {order.stage !== 'completed' && order.stage !== 'declined' && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setCancelReason('');
-                    setIsCancelModalOpen(true);
-                  }}
-                  className="inline-flex items-center gap-1 rounded-full border border-line bg-paper px-2.5 py-1 text-xs font-medium text-ink-mute transition hover:border-coral/40 hover:text-coral"
-                  title="Request formal cancellation under studio TOS"
-                >
-                  <XCircle className="size-3" /> Cancel
-                </button>
+              {order.stage !== 'completed' && order.stage !== 'declined' && order.stage !== 'cancelled' && (
+                cancellationStatus.hasRequest ? (
+                  <span
+                    className="inline-flex items-center gap-1 rounded-full border border-amber-300 bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-800"
+                    title="Cancellation request submitted and awaiting confirmation from Meru"
+                  >
+                    <Clock className="size-3 text-amber-600" /> Cancellation Under Review
+                  </span>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCancelReason('');
+                      setIsCancelModalOpen(true);
+                    }}
+                    className="inline-flex items-center gap-1 rounded-full border border-line bg-paper px-2.5 py-1 text-xs font-medium text-ink-mute transition hover:border-coral/40 hover:text-coral"
+                    title="Request formal cancellation under studio TOS"
+                  >
+                    <XCircle className="size-3" /> Cancel
+                  </button>
+                )
               )}
             </div>
           </div>
         </div>
 
+        {/* Pending Cancellation Review Banner */}
+        {cancellationStatus.hasRequest && (
+          <div className="mb-6 rounded-3xl border border-amber-300 bg-amber-50/80 p-4 sm:p-5 text-amber-950 shadow-2xs">
+            <div className="flex items-start gap-3">
+              <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-amber-100 text-amber-800">
+                <Clock className="size-5" />
+              </span>
+              <div className="flex-1">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-[11px] font-bold tracking-wider uppercase text-amber-800">
+                    Cancellation & Refund Request Under Review
+                  </span>
+                  <span className="rounded-full bg-amber-200/80 px-2.5 py-0.5 text-[10px] font-semibold text-amber-900">
+                    Awaiting Meru's Confirmation
+                  </span>
+                </div>
+                <p className="mt-1 text-xs text-amber-900">
+                  Reason provided: <span className="font-medium italic">"{cancellationStatus.reason}"</span>
+                </p>
+                <div className="mt-2.5 rounded-2xl border border-amber-200 bg-white/80 p-3 text-xs text-ink-soft space-y-1">
+                  <div className="flex items-center justify-between font-medium text-ink">
+                    <span>Applicable Refund Tier:</span>
+                    <span className="font-bold text-coral">
+                      {refundDetails.percentage} ({formatMoney(refundDetails.refundAmount, order.currency)})
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-ink-mute">
+                    Meru will review your cancellation reason. If approved, your eligible refund is processed back to your payment account within <strong className="text-ink">3–5 business days</strong>.
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Cancellation Declined Notice */}
+        {cancellationStatus.status === 'declined' && (
+          <div className="mb-6 rounded-3xl border border-line bg-cream/70 p-4 sm:p-5 text-ink shadow-2xs">
+            <div className="flex items-start gap-3">
+              <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-paper text-ink-soft">
+                <AlertTriangle className="size-5" />
+              </span>
+              <div className="flex-1 text-xs">
+                <p className="font-semibold text-ink">
+                  Cancellation Request Notice:
+                </p>
+                <p className="mt-0.5 text-ink-soft">
+                  Meru reviewed your cancellation request and was unable to approve cancellation at this stage: <span className="italic font-medium">"{cancellationStatus.declineReason}"</span>. Your order remains active in studio production.
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Progress bar line */}
         <div className="relative mb-6 h-2 w-full overflow-hidden rounded-full bg-cream">
           <motion.div
             initial={{ width: 0 }}
-            animate={{ width: `${order.progress}%` }}
+            animate={{ width: `${order.stage === 'declined' ? 0 : order.progress}%` }}
             transition={{ duration: 0.6, ease: EASE }}
-            className={`h-full rounded-full ${accent.bar}`}
+            className={cn('h-full rounded-full', order.stage === 'declined' || order.stage === 'cancelled' ? 'bg-ink-mute' : accent.bar)}
           />
         </div>
 
-        {/* 6 Step Cards */}
-        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
-          {STAGE_STEPS.map((step, idx) => {
-            const isPassed = idx < currentStepIdx;
-            const isCurrent = idx === currentStepIdx;
-            return (
-              <button
-                key={step.id}
-                type="button"
-                onClick={() => {
-                  if (isDemo) setOrderStage(order.id, step.id);
-                }}
-                disabled={!isDemo}
-                className={cn(
-                  'flex flex-col justify-between rounded-2xl border p-3 text-left transition-all',
-                  isCurrent
-                    ? 'border-ink bg-paper shadow-xs ring-1 ring-ink/20'
-                    : isPassed
-                      ? 'border-line bg-paper/60 text-ink'
-                      : 'border-transparent bg-cream/50 text-ink-mute',
-                  isDemo && 'cursor-pointer hover:border-coral',
-                )}
-              >
-                <div className="flex items-center justify-between">
-                  <span
-                    className={cn(
-                      'grid size-5 place-items-center rounded-full text-xs font-bold',
-                      isPassed
-                        ? 'bg-ink text-white'
-                        : isCurrent
-                          ? 'bg-coral text-white'
-                          : 'bg-paper text-ink-mute',
-                    )}
-                  >
-                    {isPassed ? <Check className="size-3" /> : idx + 1}
-                  </span>
-                  {isCurrent && (
-                    <span className="rounded-full bg-coral-soft px-2 py-0.5 text-xs font-semibold text-coral">
-                      Current
-                    </span>
+        {/* 6 Step Cards or Terminal State Banner */}
+        {order.stage === 'declined' || order.stage === 'cancelled' ? (
+          <div
+            className={cn(
+              'rounded-2xl border p-4 text-xs leading-relaxed',
+              order.stage === 'declined'
+                ? 'border-coral/30 bg-coral-soft/50 text-coral'
+                : 'border-line bg-canvas text-ink-soft',
+            )}
+          >
+            <p className="font-semibold text-ink">
+              {order.stage === 'declined'
+                ? 'This brief was declined during review. Slots were not deducted and no charges remain.'
+                : `This order was formally cancelled under studio TOS. Policy applied: ${refundDetails.tierName} (${refundDetails.percentage}).`}
+            </p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
+            {STAGE_STEPS.map((step, idx) => {
+              const isPassed = idx < currentStepIdx;
+              const isCurrent = idx === currentStepIdx;
+              return (
+                <div
+                  key={step.id}
+                  className={cn(
+                    'flex flex-col justify-between rounded-2xl border p-3 text-left transition-all',
+                    isCurrent
+                      ? 'border-ink bg-paper shadow-xs ring-1 ring-ink/20'
+                      : isPassed
+                        ? 'border-line bg-paper/60 text-ink'
+                        : 'border-transparent bg-cream/50 text-ink-mute',
                   )}
+                >
+                  <div className="flex items-center justify-between">
+                    <span
+                      className={cn(
+                        'grid size-5 place-items-center rounded-full text-xs font-bold',
+                        isPassed
+                          ? 'bg-ink text-white'
+                          : isCurrent
+                            ? 'bg-coral text-white'
+                            : 'bg-paper text-ink-mute',
+                      )}
+                    >
+                      {isPassed ? <Check className="size-3" /> : idx + 1}
+                    </span>
+                    {isCurrent && (
+                      <span className="rounded-full bg-coral-soft px-2 py-0.5 text-xs font-semibold text-coral">
+                        Current
+                      </span>
+                    )}
+                  </div>
+                  <p className="mt-2 font-display text-sm leading-tight font-semibold text-ink">
+                    {step.shortLabel}
+                  </p>
                 </div>
-                <p className="mt-2 font-display text-sm leading-tight font-semibold text-ink">
-                  {step.shortLabel}
-                </p>
-              </button>
-            );
-          })}
-        </div>
+              );
+            })}
+          </div>
+        )}
       </Reveal>
 
       {/* Phase 6E: COMMISSION BRIEF & SPECIFICATIONS CARD */}
@@ -694,11 +853,22 @@ export function OrderTracker() {
         )}
       </Reveal>
 
-      {/* 3. SPLIT WORKSPACE: WIP GALLERY (LEFT 7 COLS) + REALTIME CHAT (RIGHT 5 COLS) */}
-      <div className="mt-6 grid gap-6 lg:grid-cols-12">
-        {/* Left: Watermarked WIP Gallery & High-Res Master Unlock */}
-        <Reveal delay={0.15} className="space-y-4 lg:col-span-7">
-          <div className="card p-4 sm:p-6">
+      {/* 3. WORKSPACE: WATERMARKED WIP VAULT & HIGH-RES MASTER UNLOCK */}
+      <div id="artwork-vault" className="mt-6">
+        <Reveal delay={0.15} className="space-y-4">
+          {isCompleted ? (
+            <MasterDeliverableVault
+              order={order}
+              onOpenReceipt={() => printOrderInvoice(order)}
+              onOpenTipModal={() => setIsAcceptanceModalOpen(true)}
+              showToast={showToast}
+              onInspectImage={() => {
+                const finalWip = order.wips.find((w) => w.isFinal) || order.wips[order.wips.length - 1];
+                if (finalWip) setLightboxWip(finalWip);
+              }}
+            />
+          ) : (
+            <div className="card p-4 sm:p-6">
             <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
               <div>
                 <p className="text-xs font-semibold tracking-wider text-coral uppercase">
@@ -709,23 +879,85 @@ export function OrderTracker() {
                 </h3>
               </div>
 
-              <span
-                className={cn(
-                  'inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium',
-                  isCompleted ? 'bg-teal-soft text-teal' : 'bg-mustard-soft text-[#b9800f]',
-                )}
-              >
-                {isCompleted ? (
-                  <>
-                    <Unlock className="size-3.5" /> High-Res Unlocked
-                  </>
-                ) : (
-                  <>
-                    <Lock className="size-3.5" /> Watermarked until Completed
-                  </>
-                )}
-              </span>
+              <div className="flex items-center gap-2">
+                <span
+                  className={cn(
+                    'inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium',
+                    isCompleted ? 'bg-teal-soft text-teal' : 'bg-mustard-soft text-[#b9800f]',
+                  )}
+                >
+                  {isCompleted ? (
+                    <>
+                      <Unlock className="size-3.5" /> High-Res Unlocked
+                    </>
+                  ) : (
+                    <>
+                      <Lock className="size-3.5" /> Watermarked until Completed
+                    </>
+                  )}
+                </span>
+
+                <button
+                  type="button"
+                  onClick={() => setIsChatOpen(true)}
+                  className="inline-flex items-center gap-1.5 rounded-full border border-line bg-paper px-3 py-1 text-xs font-semibold text-ink transition hover:border-coral hover:bg-cream"
+                >
+                  <MessageSquare className="size-3.5 text-coral" />
+                  Live Chat ({order.messages.length})
+                </button>
+              </div>
             </div>
+
+            {/* Formal Revision Rounds Tracker Bar */}
+            {order.stage !== 'pending_review' && order.stage !== 'awaiting_deposit' && (
+              <div className="mb-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 rounded-2xl border border-line bg-canvas p-3.5 text-xs shadow-2xs">
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <span className="grid size-8 shrink-0 place-items-center rounded-xl bg-paper border border-line text-coral shadow-2xs">
+                    <RotateCcw className="size-4" />
+                  </span>
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="font-semibold text-ink">
+                        Revision Allowance: {revisionAllowance.usedCount} of {revisionAllowance.maxAllowed} Rounds Used
+                      </span>
+                      <span
+                        className={cn(
+                          'rounded-full px-2 py-0.5 text-[10px] font-bold',
+                          revisionAllowance.isExhausted
+                            ? 'bg-coral text-white'
+                            : 'bg-teal-soft text-teal',
+                        )}
+                      >
+                        {revisionAllowance.isExhausted
+                          ? 'Allowance Exhausted'
+                          : `${revisionAllowance.remainingCount} Free Left`}
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-ink-mute truncate">
+                      {revisionAllowance.canRequestFree
+                        ? 'Minor pose, anatomy, and styling tweaks are included during the Sketch stage.'
+                        : 'Additional revisions beyond included rounds require artist agreement and extra fees.'}
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-1.5 shrink-0 self-end sm:self-auto">
+                  {Array.from({ length: revisionAllowance.maxAllowed }).map((_, i) => (
+                    <span
+                      key={i}
+                      className={cn(
+                        'flex items-center gap-1 rounded-full px-2.5 py-1 text-[10px] font-bold transition-colors',
+                        i < revisionAllowance.usedCount
+                          ? 'bg-ink text-white'
+                          : 'border border-line bg-paper text-ink-soft',
+                      )}
+                    >
+                      {i < revisionAllowance.usedCount && <Check className="size-2.5" strokeWidth={3} />}
+                      Round {i + 1}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {order.stage === 'pending_review' || order.stage === 'awaiting_deposit' ? (
               <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-line bg-canvas px-6 py-12 text-center">
@@ -748,29 +980,68 @@ export function OrderTracker() {
                 </p>
               </div>
             ) : (
-              <div className="space-y-4">
-                {order.wips.map((wip) => {
+              <div className="grid gap-4 sm:grid-cols-2">
+                {order.wips.map((wip, _idx, arr) => {
                   const lockedFinal = wip.isFinal && !isCompleted;
                   const showWatermark = !isCompleted;
+                  const latestWip = arr[arr.length - 1];
+                  const isLatestWip = wip.id === latestWip?.id;
 
                   return (
                     <div
                       key={wip.id}
-                      className="overflow-hidden rounded-2xl border border-line bg-canvas p-3 sm:p-4"
+                      className={cn(
+                        'overflow-hidden rounded-2xl border p-3 sm:p-4 transition',
+                        isLatestWip
+                          ? 'border-indigo-300 bg-canvas ring-1 ring-indigo-200/60 shadow-xs'
+                          : wip.revisionRequested
+                            ? 'border-coral/40 bg-coral-soft/10'
+                            : 'border-line bg-canvas/70 opacity-90',
+                      )}
                     >
                       <div className="mb-2.5 flex flex-wrap items-center justify-between gap-2">
                         <div>
-                          <span className="text-xs font-semibold text-coral uppercase tracking-wide">
-                            {wip.isFinal ? 'Final Master File' : 'Work In Progress'}
-                          </span>
-                          <h4 className="font-display text-lg font-semibold text-ink">{wip.title}</h4>
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            {isLatestWip ? (
+                              <span className="rounded-full bg-indigo-50 px-2 py-0.5 text-[10px] font-bold text-indigo-700 border border-indigo-200">
+                                Latest WIP Sent · Current Pass
+                              </span>
+                            ) : (
+                              <span className="rounded-full bg-cream px-2 py-0.5 text-[10px] font-semibold text-ink-mute">
+                                Previous Pass
+                              </span>
+                            )}
+                            {wip.revisionRequested && (
+                              <span className="rounded-full bg-coral-soft px-2 py-0.5 text-[10px] font-bold text-coral border border-coral/30 flex items-center gap-1">
+                                <RotateCcw className="size-2.5 stroke-[2.5]" />
+                                Revision Requested
+                              </span>
+                            )}
+                            {wip.approvedByClient && (
+                              <span className="rounded-full bg-teal-soft px-2 py-0.5 text-[10px] font-bold text-teal flex items-center gap-1">
+                                <Check className="size-2.5 stroke-[2.5]" />
+                                Approved
+                              </span>
+                            )}
+                            <span className="text-xs font-semibold text-ink-mute uppercase tracking-wide">
+                              {wip.isFinal ? 'Final Master File' : 'Work In Progress'}
+                            </span>
+                          </div>
+                          <h4 className="font-display text-lg font-semibold text-ink mt-0.5">{wip.title}</h4>
                         </div>
                         <span className="text-xs text-ink-mute">
                           {formatShortDate(wip.createdAt.slice(0, 10))}
                         </span>
                       </div>
 
-                      <div className="relative aspect-4/3 w-full overflow-hidden rounded-xl border border-line bg-paper select-none">
+                      <div
+                        onClick={() => !lockedFinal && setLightboxWip(wip)}
+                        className={cn(
+                          'relative aspect-4/3 w-full overflow-hidden rounded-xl border border-line bg-paper select-none',
+                          !lockedFinal && 'cursor-pointer group',
+                        )}
+                        title={lockedFinal ? 'Master file locked' : 'Click to inspect full-screen or draw redlines'}
+                      >
                         {wip.slug ? (
                           <ArtImage
                             slug={wip.slug}
@@ -791,6 +1062,14 @@ export function OrderTracker() {
                             )}
                           />
                         ) : null}
+
+                        {/* Hover badge to inspect & draw redline */}
+                        {!lockedFinal && (
+                          <div className="absolute top-2.5 right-2.5 opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1 rounded-full bg-ink/80 backdrop-blur-xs px-2.5 py-1 text-[11px] font-bold text-white shadow-xs">
+                            <Brush className="size-3 text-coral" />
+                            <span>Zoom & Redline</span>
+                          </div>
+                        )}
 
                         {/* Protective Watermark Overlay */}
                         {showWatermark && !lockedFinal && (
@@ -845,24 +1124,75 @@ export function OrderTracker() {
                           </span>
                         )}
 
-                        {/* Phase 6E: Approval & Revision Buttons at sketch_approval */}
-                        {wip.stage === 'sketch_approval' && !wip.approvedByClient && (
-                          <div className="flex items-center gap-2">
+                        {/* Phase 6E & Phase 8: Multi-Stage WIP Confirmations & Revisions */}
+                        {wip.approvedByClient ? (
+                          <span className="inline-flex items-center gap-1.5 rounded-full border border-teal/30 bg-teal-soft/80 px-3 py-1 text-xs font-semibold text-teal shadow-2xs">
+                            <ShieldCheck className="size-3.5 stroke-[2.5]" /> Formally Signed Off · Locked
+                          </span>
+                        ) : wip.revisionRequested ? (
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="inline-flex items-center gap-1.5 rounded-full border border-coral/30 bg-coral-soft/80 px-3 py-1 text-xs font-semibold text-coral shadow-2xs">
+                              <RotateCcw className="size-3 text-coral" />
+                              Revision Requested{wip.revisionScale ? ` (${wip.revisionScale})` : ''} · Awaiting Artist Update
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => setLightboxWip(wip)}
+                              className="inline-flex items-center gap-1 rounded-full border border-line bg-paper px-2.5 py-1 text-[11px] font-medium text-ink-soft hover:text-ink"
+                            >
+                              <Brush className="size-2.5 text-coral" /> Inspect / Notes
+                            </button>
+                          </div>
+                        ) : isLatestWip && !isCompleted && (order.stage === 'sketch_approval' || order.stage === 'lineart_coloring') ? (
+                          <div className="flex flex-wrap items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={() => setLightboxWip(wip)}
+                              className="inline-flex items-center gap-1.5 rounded-full border border-line bg-paper px-3 py-1.5 text-xs font-semibold text-ink transition hover:border-coral hover:text-coral shadow-2xs"
+                              title="Open Fullscreen Lightbox & Redline Markup Canvas"
+                            >
+                              <Brush className="size-3 text-coral" />
+                              <span>Zoom & Redline</span>
+                            </button>
+
                             <button
                               type="button"
                               onClick={() => handleOpenRevisionModal(wip)}
-                              className="inline-flex items-center gap-1 rounded-full border border-line bg-paper px-3 py-1.5 text-xs font-medium text-ink-soft transition hover:border-coral hover:text-coral"
+                              className="inline-flex items-center gap-1.5 rounded-full border border-line bg-paper px-3 py-1.5 text-xs font-medium text-ink-soft transition hover:border-coral hover:text-coral shadow-2xs"
                             >
-                              <RotateCcw className="size-3 text-coral" /> Request Revision / Redline
+                              <RotateCcw className="size-3 text-coral" />
+                              <span>Request Revision</span>
+                              <span
+                                className={cn(
+                                  'rounded-full px-1.5 py-0.2 text-[10px] font-bold',
+                                  revisionAllowance.isSketchPhase
+                                    ? 'bg-teal-soft text-teal'
+                                    : revisionAllowance.isExhausted
+                                      ? 'bg-coral-soft text-coral'
+                                      : 'bg-cream text-ink',
+                                )}
+                              >
+                                {revisionAllowance.isSketchPhase
+                                  ? 'Free · Unlimited'
+                                  : `${revisionAllowance.remainingCount}/${revisionAllowance.maxAllowed} left`}
+                              </span>
                             </button>
                             <button
                               type="button"
-                              onClick={() => approveOrderSketch(order.id)}
-                              className="inline-flex items-center gap-1 rounded-full bg-ink px-3 py-1.5 text-xs font-medium text-white transition hover:bg-coral"
+                              onClick={() => {
+                                setSignoffWip(wip);
+                                setAfterSignoffOpenPayment(false);
+                                setIsSignoffModalOpen(true);
+                              }}
+                              className="inline-flex items-center gap-1.5 rounded-full bg-ink px-3.5 py-1.5 text-xs font-medium text-white transition hover:bg-coral shadow-2xs"
                             >
-                              <Check className="size-3 text-mustard" /> Approve this WIP
+                              <ShieldCheck className="size-3 text-mustard" /> Formally Sign-off & Lock
                             </button>
                           </div>
+                        ) : (
+                          <span className="text-xs text-ink-mute italic">
+                            {isLatestWip ? 'Awaiting stage progression' : 'Superseded by newer pass'}
+                          </span>
                         )}
                       </div>
                     </div>
@@ -870,161 +1200,35 @@ export function OrderTracker() {
                 })}
               </div>
             )}
-          </div>
-        </Reveal>
 
-        {/* Right: Realtime Order Chat & Receipt Dropper */}
-        <Reveal delay={0.2} className="lg:col-span-5">
-          <div className="card flex h-full min-h-[520px] flex-col p-4 sm:p-6">
-            <div className="mb-3 flex items-center justify-between border-b border-line pb-3">
-              <div className="flex items-center gap-2">
-                <span className="grid size-8 place-items-center rounded-xl bg-coral-soft text-coral">
-                  <MessageSquare className="size-4" />
-                </span>
+            {/* Phase 8: Client Final Acceptance & Completion Gate — STRICTLY only in lineart_coloring when Final Master deliverable exists */}
+            {!isCompleted && order.stage === 'lineart_coloring' && order.wips.some((w) => w.isFinal) && (
+              <div className="mt-5 rounded-2xl border border-teal/40 bg-teal-soft/40 p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                 <div>
                   <div className="flex items-center gap-2">
-                    <h4 className="font-display text-base font-semibold text-ink">
-                      Order Chat · #{orderDisplayCode}
+                    <span className="rounded-full bg-teal text-white p-1">
+                      <Sparkles className="size-3.5" />
+                    </span>
+                    <h4 className="font-display text-base font-bold text-ink">
+                      Satisfied with your artwork?
                     </h4>
-                    {!isDemo && (
-                      <span className="inline-flex items-center gap-1 rounded-full bg-teal-soft px-2 py-0.5 text-xs font-semibold text-teal">
-                        <span className="size-1.5 rounded-full bg-teal animate-pulse" /> Live
-                      </span>
-                    )}
                   </div>
-                  <p className="text-xs text-ink-mute">Direct communication with Meru</p>
+                  <p className="text-xs text-ink-soft mt-1 max-w-xl">
+                    Once you love the colors, shading, and details, click below to confirm final acceptance. This completes your order and immediately unlocks your unwatermarked 300 DPI master download!
+                  </p>
                 </div>
-              </div>
-
-              {/* Realtime Audio Chime & Browser Notification Toggles */}
-              <div className="flex items-center gap-1.5">
                 <button
                   type="button"
-                  onClick={handleToggleSound}
-                  title={soundActive ? 'Mute notification sound chimes' : 'Unmute notification sound chimes'}
-                  aria-label={soundActive ? 'Mute audio' : 'Unmute audio'}
-                  className={cn(
-                    'grid size-7 place-items-center rounded-full border text-xs transition-colors',
-                    soundActive
-                      ? 'border-line bg-paper text-ink hover:border-ink/30'
-                      : 'border-dashed border-ink/20 bg-cream text-ink-mute hover:text-ink',
-                  )}
+                  onClick={() => setIsAcceptanceModalOpen(true)}
+                  className="inline-flex items-center justify-center gap-1.5 rounded-full bg-ink px-5 py-2.5 text-xs font-semibold text-white transition hover:bg-teal shadow-xs shrink-0"
                 >
-                  {soundActive ? <Volume2 className="size-3.5 text-teal" /> : <VolumeX className="size-3.5" />}
-                </button>
-                <button
-                  type="button"
-                  onClick={handleRequestDesktopNotifications}
-                  title="Enable desktop notifications"
-                  aria-label="Enable desktop notifications"
-                  className="grid size-7 place-items-center rounded-full border border-line bg-paper text-ink-soft hover:border-ink/30 hover:text-coral transition-colors"
-                >
-                  <Bell className="size-3.5" />
+                  <Check className="size-3.5 text-mustard" strokeWidth={3} />
+                  Accept Artwork & Complete Order
                 </button>
               </div>
-            </div>
-
-            {/* Chat Message List */}
-            <div
-              role="log"
-              aria-live="polite"
-              aria-relevant="additions text"
-              aria-atomic="false"
-              aria-label="Order messages live transcript"
-              className="no-scrollbar flex-1 space-y-3 overflow-y-auto py-2 pr-1"
-            >
-              {order.messages.map((m) => {
-                const isArtist = m.senderRole === 'artist';
-                return (
-                  <div
-                    key={m.id}
-                    className={cn('flex flex-col', isArtist ? 'items-start' : 'items-end')}
-                  >
-                    <div className="mb-1 flex items-center gap-1.5 text-xs text-ink-mute">
-                      <span className={cn('font-semibold', isArtist ? 'text-coral' : 'text-teal')}>
-                        {m.senderName}
-                      </span>
-                      <span>·</span>
-                      <span>{formatShortDate(m.createdAt.slice(0, 10))}</span>
-                    </div>
-
-                    <div
-                      className={cn(
-                        'max-w-[85%] rounded-2xl px-3.5 py-2.5 text-xs leading-relaxed',
-                        isArtist
-                          ? 'border border-line bg-paper text-ink'
-                          : 'bg-ink text-white shadow-xs',
-                      )}
-                    >
-                      {m.attachmentUrl && (
-                        <div className="mb-2 overflow-hidden rounded-xl border border-line bg-canvas">
-                          <img
-                            src={m.attachmentUrl}
-                            alt="Attachment"
-                            className="max-h-48 w-full object-contain"
-                          />
-                          {m.attachmentKind && (
-                            <span className="block bg-paper px-2 py-1 text-xs font-semibold text-coral uppercase">
-                              Attached: {m.attachmentKind}
-                            </span>
-                          )}
-                        </div>
-                      )}
-                      <p>{m.body}</p>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-
-            {/* Message input */}
-            <form onSubmit={handleChatSubmit} className="mt-3 border-t border-line pt-3">
-              <div className="mb-2 flex items-center justify-between gap-2">
-                <div className="flex items-center gap-1">
-                  {(['receipt', 'redline', 'reference'] as AttachmentKind[]).map((k) => (
-                    <button
-                      key={k}
-                      type="button"
-                      onClick={() => setAttachmentKind(k)}
-                      className={cn(
-                        'rounded-full px-2 py-0.5 text-xs font-medium capitalize transition-colors',
-                        attachmentKind === k
-                          ? 'bg-ink text-white'
-                          : 'border border-line bg-paper text-ink-soft hover:text-ink',
-                      )}
-                    >
-                      {k}
-                    </button>
-                  ))}
-                </div>
-
-                <button
-                  type="button"
-                  onClick={() => chatFileInputRef.current?.click()}
-                  className="inline-flex items-center gap-1 text-xs font-medium text-coral hover:underline"
-                >
-                  <ImagePlus className="size-3.5" /> Upload Image
-                </button>
-              </div>
-
-              <div className="flex items-center gap-2">
-                <input
-                  type="text"
-                  value={chatInput}
-                  onChange={(e) => setChatInput(e.target.value)}
-                  placeholder="Write a message, redline note, or payment ref..."
-                  className="flex-1 rounded-full border border-line bg-paper px-3.5 py-2 text-xs text-ink placeholder:text-ink-mute focus:border-ink focus:outline-none"
-                />
-                <button
-                  type="submit"
-                  aria-label="Send message"
-                  className="grid size-9 shrink-0 place-items-center rounded-full bg-ink text-white transition hover:bg-coral"
-                >
-                  <Send className="size-3.5" />
-                </button>
-              </div>
-            </form>
+            )}
           </div>
+          )}
         </Reveal>
       </div>
 
@@ -1121,7 +1325,30 @@ export function OrderTracker() {
           >
             <div className="flex items-center justify-between border-b border-line pb-4">
               <div>
-                <h3 className="font-display text-xl font-semibold text-ink">Request Revision / Redline</h3>
+                <div className="flex items-center gap-2">
+                  <span
+                    className={cn(
+                      'rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider',
+                      revisionAllowance.isSketchPhase
+                        ? 'bg-teal text-white'
+                        : revisionAllowance.isExhausted
+                          ? 'bg-coral text-white'
+                          : 'bg-teal text-white',
+                    )}
+                  >
+                    {revisionAllowance.isSketchPhase
+                      ? 'Sketch Stage · Free Revisions'
+                      : revisionAllowance.isExhausted
+                        ? 'Extra Revision Round'
+                        : `Round #${revisionAllowance.usedCount + 1} of ${revisionAllowance.maxAllowed}`}
+                  </span>
+                  <span className="text-xs font-semibold text-ink-mute">
+                    {revisionAllowance.isSketchPhase
+                      ? 'Unlimited Free'
+                      : `${revisionAllowance.remainingCount} included free left`}
+                  </span>
+                </div>
+                <h3 className="font-display text-xl font-semibold text-ink mt-1">Request Revision / Redline</h3>
                 <p className="text-xs text-ink-soft">Send feedback for: {revisionWip.title}</p>
               </div>
               <button
@@ -1133,7 +1360,82 @@ export function OrderTracker() {
               </button>
             </div>
 
+            {revisionAllowance.isSketchPhase ? (
+              <div className="mt-3 rounded-2xl border border-teal/30 bg-teal-soft/40 p-3 text-xs text-ink flex items-start gap-2">
+                <Check className="size-4 text-teal shrink-0 mt-0.5 stroke-[2.5]" />
+                <p className="text-[11px] text-ink-soft leading-relaxed">
+                  Revisions on rough composition sketches are <strong className="text-teal">100% free with no limit</strong>! Request pose, composition, or detail changes freely until you are completely satisfied with the draft.
+                </p>
+              </div>
+            ) : revisionAllowance.isExhausted && revisionScale === 'major' ? (
+              <div className="mt-3 rounded-2xl border border-coral/30 bg-coral-soft/50 p-3 text-xs text-ink space-y-1">
+                <p className="font-semibold text-coral flex items-center gap-1.5">
+                  <AlertCircle className="size-3.5 shrink-0" />
+                  Included Major Revision Allowance Exhausted ({revisionAllowance.maxAllowed} of {revisionAllowance.maxAllowed} rounds used)
+                </p>
+                <p className="text-[11px] text-ink-soft leading-relaxed">
+                  You have used all {revisionAllowance.maxAllowed} free major revision rounds included with your commission. You can still submit these notes—Meru Art will review the request and let you know if an additional revision fee applies per studio TOS before making changes.
+                </p>
+              </div>
+            ) : null}
+
             <form onSubmit={handleSubmitRevision} className="mt-4 space-y-4">
+              {/* If in lineart/coloring stage: Allow picking small revision vs big revision */}
+              {!revisionAllowance.isSketchPhase && (
+                <div>
+                  <label className="block text-xs font-semibold text-ink uppercase tracking-wide">
+                    Revision Scope / Scale
+                  </label>
+                  <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setRevisionScale('minor')}
+                      className={cn(
+                        'flex flex-col text-left p-3 rounded-xl border transition',
+                        revisionScale === 'minor'
+                          ? 'border-teal bg-teal-soft/60 text-ink shadow-2xs'
+                          : 'border-line bg-canvas text-ink-soft hover:border-ink/40',
+                      )}
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-bold text-ink">Small Revision / Fix</span>
+                        <span className="rounded-full bg-teal text-white px-1.5 py-0.2 text-[9px] font-bold">
+                          Free & Unlimited
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-ink-mute mt-1 leading-tight">
+                        Small color tweak, minor rendering adjustment, or tiny detail polish.
+                      </p>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setRevisionScale('major')}
+                      className={cn(
+                        'flex flex-col text-left p-3 rounded-xl border transition',
+                        revisionScale === 'major'
+                          ? 'border-coral bg-coral-soft/60 text-ink shadow-2xs'
+                          : 'border-line bg-canvas text-ink-soft hover:border-ink/40',
+                      )}
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-bold text-ink">Major Revision / Overhaul</span>
+                        <span
+                          className={cn(
+                            'rounded-full px-1.5 py-0.2 text-[9px] font-bold',
+                            revisionAllowance.isExhausted ? 'bg-coral text-white' : 'bg-cream text-ink',
+                          )}
+                        >
+                          {revisionAllowance.remainingCount}/{revisionAllowance.maxAllowed} left
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-ink-mute mt-1 leading-tight">
+                        Significant redraw, pose change, or structural changes to finished lineart.
+                      </p>
+                    </button>
+                  </div>
+                </div>
+              )}
               <div>
                 <label className="block text-xs font-semibold text-ink uppercase tracking-wide">
                   Revision Category
@@ -1175,9 +1477,18 @@ export function OrderTracker() {
 
               <div>
                 <label className="block text-xs font-semibold text-ink uppercase tracking-wide">
-                  Optional Redline or Reference Attachment
+                  Redline Markup & Visual Feedback
                 </label>
-                <div className="mt-1 flex items-center gap-2">
+                <div className="mt-2 flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setLightboxWip(revisionWip)}
+                    className="inline-flex items-center gap-1.5 rounded-full border border-coral/40 bg-coral-soft/60 px-4 py-2 text-xs font-bold text-coral transition hover:bg-coral hover:text-white shadow-2xs"
+                  >
+                    <Brush className="size-3.5" />
+                    <span>{revisionRedlineFile ? 'Re-edit Drawn Redline' : 'Draw Redline directly on WIP'}</span>
+                  </button>
+
                   <input
                     ref={revisionFileInputRef}
                     type="file"
@@ -1188,21 +1499,32 @@ export function OrderTracker() {
                   <button
                     type="button"
                     onClick={() => revisionFileInputRef.current?.click()}
-                    className="inline-flex items-center gap-1.5 rounded-full border border-line bg-canvas px-4 py-2 text-xs font-medium text-ink transition hover:border-ink"
+                    className="inline-flex items-center gap-1.5 rounded-full border border-line bg-canvas px-3.5 py-2 text-xs font-medium text-ink-soft transition hover:border-ink"
                   >
-                    <ImagePlus className="size-3.5 text-coral" />
-                    {revisionRedlineFile ? revisionRedlineFile.name : 'Select Redline Image...'}
+                    <ImagePlus className="size-3.5 text-ink-soft" />
+                    <span>Upload image file...</span>
                   </button>
-                  {revisionRedlineFile && (
+                </div>
+
+                {revisionRedlineFile && (
+                  <div className="mt-2.5 flex items-center justify-between rounded-xl border border-teal/40 bg-teal-soft/40 px-3.5 py-2 text-xs text-ink">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className="grid size-5 shrink-0 place-items-center rounded-full bg-teal text-white">
+                        <Check className="size-3 stroke-[3]" />
+                      </span>
+                      <span className="font-semibold text-teal truncate">
+                        {revisionRedlineFile.name}
+                      </span>
+                    </div>
                     <button
                       type="button"
                       onClick={() => setRevisionRedlineFile(null)}
-                      className="text-xs text-coral hover:underline"
+                      className="text-[11px] font-bold text-coral hover:underline shrink-0 ml-2"
                     >
-                      Clear
+                      Remove
                     </button>
-                  )}
-                </div>
+                  </div>
+                )}
               </div>
 
               <div className="flex items-center justify-end gap-3 pt-2">
@@ -1253,7 +1575,7 @@ export function OrderTracker() {
               </button>
             </div>
 
-            <div className="mt-4 rounded-2xl border border-line bg-canvas p-4">
+            <div className="mt-4 rounded-2xl border border-line bg-canvas p-4 space-y-3">
               <div className="flex items-center justify-between">
                 <span className="text-xs font-semibold text-ink uppercase tracking-wide">
                   Current Stage Refund Tier
@@ -1262,29 +1584,57 @@ export function OrderTracker() {
                   {refundDetails.percentage}
                 </span>
               </div>
-              <p className="mt-2 text-sm font-semibold text-ink">{refundDetails.tierName}</p>
-              <p className="mt-1 text-xs text-ink-soft">{refundDetails.notes}</p>
-              <div className="mt-3 border-t border-line/60 pt-2 flex items-center justify-between text-xs">
+              <p className="text-sm font-semibold text-ink">{refundDetails.tierName}</p>
+              <p className="text-xs text-ink-soft">{refundDetails.notes}</p>
+              <div className="border-t border-line/60 pt-2 flex items-center justify-between text-xs">
                 <span className="text-ink-mute">Estimated Refund Amount:</span>
-                <strong className="text-sm font-bold text-ink">
+                <strong className="text-sm font-bold text-coral">
                   {formatMoney(refundDetails.refundAmount, order.currency)}
                 </strong>
+              </div>
+              <div className="rounded-xl border border-line/70 bg-cream/70 p-3 text-[11px] text-ink-soft space-y-1">
+                <div className="flex items-center gap-1.5 font-semibold text-ink">
+                  <Clock className="size-3.5 text-coral" />
+                  Refund Timeline: 3–5 Business Days
+                </div>
+                <p>
+                  Cancellation requests require confirmation by Meru. Once approved, eligible refunds are processed back to your original payment method (PayPal or GCash) within <strong>3–5 business days</strong>.
+                </p>
               </div>
             </div>
 
             <form onSubmit={handleSubmitCancellation} className="mt-4 space-y-4">
               <div>
-                <label className="block text-xs font-semibold text-ink uppercase tracking-wide">
-                  Reason for Cancellation
-                </label>
+                <div className="flex items-center justify-between">
+                  <label className="block text-xs font-semibold text-ink uppercase tracking-wide">
+                    Reason for Cancellation <span className="text-coral">*</span>
+                  </label>
+                  <span
+                    className={cn(
+                      'text-[11px] font-medium',
+                      cancelReason.trim().length >= 15 ? 'text-teal' : 'text-ink-mute',
+                    )}
+                  >
+                    {cancelReason.trim().length}/15 chars min
+                  </span>
+                </div>
                 <textarea
                   rows={3}
                   required
                   value={cancelReason}
                   onChange={(e) => setCancelReason(e.target.value)}
-                  placeholder="Please share the reason for requesting cancellation..."
-                  className="mt-1 w-full rounded-xl border border-line bg-canvas px-3.5 py-2.5 text-sm text-ink focus:border-ink focus:outline-none"
+                  placeholder="Please provide a specific, valid reason for cancellation (e.g. personal emergency, duplicate brief, schedule conflict)..."
+                  className="mt-1.5 w-full rounded-xl border border-line bg-canvas px-3.5 py-2.5 text-xs text-ink placeholder:text-ink-mute focus:border-ink focus:outline-none"
                 />
+                {cancelReason.trim().length > 0 && cancelReason.trim().length < 15 ? (
+                  <p className="mt-1 text-[11px] text-coral">
+                    Please provide a valid, descriptive reason (at least 15 characters, {15 - cancelReason.trim().length} more needed) so Meru can confirm your cancellation.
+                  </p>
+                ) : (
+                  <p className="mt-1 text-[11px] text-ink-mute">
+                    Meru verifies each request manually before confirming cancellation and initiating refund.
+                  </p>
+                )}
               </div>
 
               <div className="flex items-center justify-end gap-3 pt-2">
@@ -1297,55 +1647,101 @@ export function OrderTracker() {
                 </button>
                 <button
                   type="submit"
-                  disabled={isCancelling || !cancelReason.trim()}
+                  disabled={isCancelling || cancelReason.trim().length < 15}
                   className="rounded-full bg-coral px-5 py-2.5 text-xs font-medium text-white transition hover:bg-ink disabled:opacity-50"
                 >
-                  {isCancelling ? 'Submitting...' : 'Confirm Cancellation Request'}
+                  {isCancelling ? 'Submitting Request...' : 'Submit Cancellation Request'}
                 </button>
               </div>
             </form>
           </motion.div>
         </div>
       )}
+
+      {/* Floating Bottom-Right Chat Widget (Active on Track Order Tab) */}
+      <OrderChatWidget
+        order={order}
+        user={user}
+        soundActive={soundActive}
+        onToggleSound={handleToggleSound}
+        onRequestDesktopNotifications={handleRequestDesktopNotifications}
+        sendOrderMessage={sendOrderMessage}
+        showToast={showToast}
+        isOpen={isChatOpen}
+        onToggleOpen={() => setIsChatOpen((prev) => !prev)}
+        isArtistAdmin={isArtistAdmin}
+      />
+
+      {/* Interactive Payment Details Modal (PayPal / GCash QR / Bank Transfer) */}
+      <PaymentDetailsModal
+        isOpen={isPaymentModalOpen}
+        onClose={() => setIsPaymentModalOpen(false)}
+        order={order}
+        usdToPhpRate={studioSettings.usdToPhpRate}
+        paymentDetails={studioSettings.paymentDetails}
+        onUploadReceipt={(kind) => triggerReceiptUpload(kind)}
+      />
+
+      {/* Formal Milestone Sign-off Gate Modal */}
+      {order && (
+        <MilestoneSignoffModal
+          isOpen={isSignoffModalOpen}
+          onClose={() => {
+            setIsSignoffModalOpen(false);
+            setSignoffWip(null);
+            setAfterSignoffOpenPayment(false);
+          }}
+          order={order}
+          wip={signoffWip}
+          onConfirmSignoff={handleConfirmMilestoneSignoff}
+        />
+      )}
+
+      {/* Client Final Artwork Acceptance & Tipping Gate Modal */}
+      {order && (
+        <ClientArtworkAcceptanceModal
+          isOpen={isAcceptanceModalOpen}
+          onClose={() => setIsAcceptanceModalOpen(false)}
+          order={order}
+          finalWip={order.wips.find((w) => w.isFinal) || order.wips[order.wips.length - 1]}
+          onConfirmAcceptance={handleConfirmFinalAcceptance}
+        />
+      )}
+
+      {/* Full-Screen Client WIP Lightbox & Redline Markup Modal */}
+      {lightboxWip && (
+        <WipLightboxMarkupModal
+          isOpen={Boolean(lightboxWip)}
+          onClose={() => setLightboxWip(null)}
+          wip={lightboxWip}
+          orderCode={orderDisplayCode}
+          onAttachRedline={(file) => {
+            setRevisionWip(lightboxWip);
+            setRevisionRedlineFile(file);
+            setLightboxWip(null);
+            showToast('Redline markup attached! Add your feedback notes and submit to Meru.');
+          }}
+        />
+      )}
     </section>
   );
 }
 
-export function getRefundTierInfo(
-  stage: CommissionStage,
-  totalUsd: number,
-  depositUsd: number,
-  depositPaid: boolean,
-  finalPaid: boolean,
-) {
-  const paidSoFar = finalPaid ? totalUsd : depositPaid ? depositUsd : 0;
-  if (stage === 'pending_review' || stage === 'awaiting_deposit') {
-    return {
-      tierName: 'Pre-Production Stage (Before Sketching)',
-      percentage: '100% Full Refund',
-      refundAmount: paidSoFar,
-      notes: 'Work has not begun. Any upfront deposit paid is eligible for 100% full refund.',
-    };
-  }
-  if (stage === 'sketching' || stage === 'sketch_approval') {
-    return {
-      tierName: 'Initial Sketch Stage',
-      percentage: '50% Refund',
-      refundAmount: Math.round(paidSoFar * 0.5),
-      notes: 'Upfront deposit covers thumbnail sketching and composition labor.',
-    };
-  }
-  return {
-    tierName: 'Final Production Stage (Lineart & Coloring)',
-    percentage: '0% Non-Refundable',
-    refundAmount: 0,
-    notes: 'Artwork is actively rendering or finished; production time and labor are fully committed.',
-  };
-}
+import {
+  getRefundTierInfo,
+  getActiveCancellationRequest,
+  type CancellationRequestInfo,
+} from '@/lib/orderCancellation';
+
+export {
+  getRefundTierInfo,
+  getActiveCancellationRequest,
+  type CancellationRequestInfo,
+};
 
 function LoggedOutTrackView({ onSignIn }: { onSignIn: () => void }) {
   return (
-    <section className="pt-28 pb-16 sm:pt-36">
+    <section className="pt-32 pb-4 sm:pt-36 sm:pb-16">
       <div className="mx-auto max-w-xl text-center">
         <div className="mx-auto mb-5 grid size-16 place-items-center rounded-3xl border border-line bg-cream shadow-xs">
           <Lock className="size-8 text-coral" />
@@ -1364,13 +1760,6 @@ function LoggedOutTrackView({ onSignIn }: { onSignIn: () => void }) {
             <BrandIcon id="google" className="size-4 fill-white" />
             Sign in with Google
           </button>
-          <a
-            href="?demo=1#track"
-            className="inline-flex items-center gap-1.5 rounded-full border border-line bg-paper px-5 py-3 text-sm font-medium text-ink transition hover:bg-cream"
-          >
-            <Eye className="size-4 text-ink-mute" />
-            Preview Demo Room
-          </a>
         </div>
       </div>
     </section>
@@ -1379,7 +1768,7 @@ function LoggedOutTrackView({ onSignIn }: { onSignIn: () => void }) {
 
 function EmptyTrackView({ onOpenDrawer }: { onOpenDrawer: () => void }) {
   return (
-    <section className="pt-28 pb-16 sm:pt-36">
+    <section className="pt-32 pb-4 sm:pt-36 sm:pb-16">
       <div className="mx-auto max-w-xl text-center">
         <div className="mx-auto mb-5 grid size-16 place-items-center rounded-3xl border border-line bg-cream shadow-xs">
           <Sparkles className="size-8 text-coral" />
@@ -1398,13 +1787,6 @@ function EmptyTrackView({ onOpenDrawer }: { onOpenDrawer: () => void }) {
             <Sparkles className="size-4 text-mustard" />
             Commission Meru
           </button>
-          <a
-            href="?demo=1#track"
-            className="inline-flex items-center gap-1.5 rounded-full border border-line bg-paper px-5 py-3 text-sm font-medium text-ink transition hover:bg-cream"
-          >
-            <Eye className="size-4 text-ink-mute" />
-            Preview Demo Showcase
-          </a>
         </div>
       </div>
     </section>
@@ -1413,21 +1795,87 @@ function EmptyTrackView({ onOpenDrawer }: { onOpenDrawer: () => void }) {
 
 function TopActionBanner({
   order,
-  isDemo,
   remainingUsd,
-  onSimulateArtistApprove,
   onUploadDeposit,
   onApproveSketchAndPay,
   onApproveSketchOnly,
+  onCompleteOrder,
+  onOpenDrawer,
+  onOpenPaymentModal,
+  refundDetails,
 }: {
   order: SubmittedOrder;
-  isDemo: boolean;
   remainingUsd: number;
-  onSimulateArtistApprove: () => void;
   onUploadDeposit: () => void;
   onApproveSketchAndPay: () => void;
   onApproveSketchOnly: () => void;
+  onCompleteOrder: () => void;
+  onOpenDrawer: () => void;
+  onOpenPaymentModal: () => void;
+  refundDetails: ReturnType<typeof getRefundTierInfo>;
 }) {
+  if (order.stage === 'declined') {
+    return (
+      <div className="flex flex-col justify-between gap-3 rounded-3xl border border-coral/35 bg-coral-soft/75 p-4 sm:flex-row sm:items-center sm:p-5">
+        <div className="flex items-start gap-3">
+          <span className="grid size-10 shrink-0 place-items-center rounded-2xl bg-paper text-coral">
+            <XCircle className="size-5" />
+          </span>
+          <div>
+            <p className="text-xs font-semibold tracking-wider text-coral uppercase">
+              Commission Declined · Request Closed
+            </p>
+            <h3 className="font-display text-xl font-semibold text-ink">
+              Meru was unable to accept this commission brief.
+            </h3>
+            <p className="text-xs text-ink-soft">
+              This is usually due to full studio capacity, tight turnaround deadlines, or character/scope constraints. Any upfront deposit is eligible for 100% full refund.
+            </p>
+          </div>
+        </div>
+        <button
+          type="button"
+          onClick={onOpenDrawer}
+          className="inline-flex shrink-0 items-center justify-center gap-1.5 rounded-full bg-ink px-5 py-3 text-xs font-medium text-white transition hover:bg-coral"
+        >
+          <Sparkles className="size-4 text-mustard" />
+          Submit New Quote
+        </button>
+      </div>
+    );
+  }
+
+  if (order.stage === 'cancelled') {
+    return (
+      <div className="flex flex-col justify-between gap-3 rounded-3xl border border-line bg-canvas p-4 sm:flex-row sm:items-center sm:p-5">
+        <div className="flex items-start gap-3">
+          <span className="grid size-10 shrink-0 place-items-center rounded-2xl bg-paper text-ink-mute">
+            <AlertTriangle className="size-5" />
+          </span>
+          <div>
+            <p className="text-xs font-semibold tracking-wider text-ink-mute uppercase">
+              Commission Cancelled · Studio TOS Policy Applied
+            </p>
+            <h3 className="font-display text-xl font-semibold text-ink">
+              This commission has been cancelled.
+            </h3>
+            <p className="text-xs text-ink-soft">
+              Refund tier: <strong>{refundDetails.tierName}</strong> ({refundDetails.percentage}). {refundDetails.notes}
+            </p>
+          </div>
+        </div>
+        <button
+          type="button"
+          onClick={() => printOrderInvoice(order)}
+          className="inline-flex shrink-0 items-center justify-center gap-1.5 rounded-full border border-line bg-paper px-4 py-2.5 text-xs font-medium text-ink transition hover:border-ink hover:bg-cream"
+        >
+          <Printer className="size-3.5 text-coral" />
+          Print Order Record
+        </button>
+      </div>
+    );
+  }
+
   if (order.stage === 'pending_review') {
     return (
       <div className="flex flex-col justify-between gap-3 rounded-3xl border border-mustard/40 bg-mustard-soft/65 p-4 sm:flex-row sm:items-center sm:p-5">
@@ -1447,19 +1895,9 @@ function TopActionBanner({
             </p>
           </div>
         </div>
-        {isDemo ? (
-          <button
-            type="button"
-            onClick={onSimulateArtistApprove}
-            className="shrink-0 rounded-full bg-ink px-4 py-2.5 text-xs font-medium text-white transition hover:bg-coral"
-          >
-            Simulate Artist Approval →
-          </button>
-        ) : (
-          <span className="shrink-0 rounded-full border border-mustard/40 bg-paper px-3.5 py-2 text-xs font-medium text-[#b9800f]">
-            Waiting for Meru's Review
-          </span>
-        )}
+        <span className="shrink-0 rounded-full border border-mustard/40 bg-paper px-3.5 py-2 text-xs font-medium text-[#b9800f]">
+          Waiting for Meru's Review
+        </span>
       </div>
     );
   }
@@ -1484,14 +1922,24 @@ function TopActionBanner({
             </p>
           </div>
         </div>
-        <button
-          type="button"
-          onClick={onUploadDeposit}
-          className="inline-flex shrink-0 items-center justify-center gap-1.5 rounded-full bg-ink px-5 py-3 text-xs font-medium text-white transition hover:bg-coral"
-        >
-          <Receipt className="size-4 text-mustard" />
-          Upload {formatMoney(order.depositUsd, order.currency)} Receipt
-        </button>
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={onOpenPaymentModal}
+            className="inline-flex shrink-0 items-center justify-center gap-1.5 rounded-full border border-line bg-paper px-4 py-2.5 text-xs font-semibold text-ink shadow-xs transition hover:border-ink hover:bg-cream"
+          >
+            <CreditCard className="size-3.5 text-coral" />
+            <span>Payment Details & QR</span>
+          </button>
+          <button
+            type="button"
+            onClick={onUploadDeposit}
+            className="inline-flex shrink-0 items-center justify-center gap-1.5 rounded-full bg-ink px-5 py-2.5 text-xs font-semibold text-white shadow-xs transition hover:bg-coral"
+          >
+            <Receipt className="size-3.5 text-mustard" />
+            <span>Upload {formatMoney(order.depositUsd, order.currency)} Receipt</span>
+          </button>
+        </div>
       </div>
     );
   }
@@ -1519,7 +1967,17 @@ function TopActionBanner({
           </div>
         </div>
 
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          {needsRemaining50 && (
+            <button
+              type="button"
+              onClick={onOpenPaymentModal}
+              className="inline-flex shrink-0 items-center justify-center gap-1.5 rounded-full border border-line bg-paper px-4 py-2.5 text-xs font-semibold text-ink shadow-xs transition hover:border-ink hover:bg-cream"
+            >
+              <CreditCard className="size-3.5 text-coral" />
+              <span>Payment Details & QR</span>
+            </button>
+          )}
           {needsRemaining50 ? (
             <button
               type="button"
@@ -1563,11 +2021,130 @@ function TopActionBanner({
             </p>
           </div>
         </div>
+        <button
+          type="button"
+          onClick={() => printOrderInvoice(order)}
+          className="inline-flex shrink-0 items-center justify-center gap-1.5 rounded-full bg-ink px-4 py-2.5 text-xs font-medium text-white transition hover:bg-teal"
+        >
+          <Printer className="size-3.5 text-mustard" />
+          Print Invoice
+        </button>
       </div>
     );
   }
 
-  // sketching or lineart_coloring
+  if (order.stage === 'lineart_coloring') {
+    const hasFinalMasterDeliverable = order.wips.some((w) => w.isFinal);
+    const hasUnapprovedWip = order.wips.some((w) => !w.approvedByClient);
+    const latestWip = order.wips[order.wips.length - 1];
+
+    if (hasFinalMasterDeliverable) {
+      return (
+        <div className="flex flex-col justify-between gap-3 rounded-3xl border border-teal/40 bg-teal-soft/50 p-4 sm:flex-row sm:items-center sm:p-5">
+          <div className="flex items-start gap-3">
+            <span className="grid size-10 shrink-0 place-items-center rounded-2xl bg-paper text-teal shadow-2xs">
+              <Sparkles className="size-5" />
+            </span>
+            <div>
+              <p className="text-xs font-semibold tracking-wider text-teal uppercase">
+                Final Master Deliverable Ready · Final Client Acceptance
+              </p>
+              <h3 className="font-display text-xl font-semibold text-ink">
+                Meru posted your final high-resolution illustration!
+              </h3>
+              <p className="text-xs text-ink-soft">
+                Inspect your finished artwork in the vault below. When you are 100% satisfied, accept below to complete your order and unlock high-res 300 DPI master files!
+              </p>
+            </div>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                const el = document.getElementById('artwork-vault');
+                if (el) el.scrollIntoView({ behavior: 'smooth' });
+              }}
+              className="inline-flex shrink-0 items-center justify-center gap-1.5 rounded-full border border-line bg-paper px-4 py-2 text-xs font-medium text-ink transition hover:border-ink hover:bg-cream"
+            >
+              <ImagePlus className="size-3.5 text-teal" />
+              View WIP Vault ↓
+            </button>
+            <button
+              type="button"
+              onClick={onCompleteOrder}
+              className="inline-flex shrink-0 items-center justify-center gap-1.5 rounded-full bg-ink px-4 py-2 text-xs font-semibold text-white transition hover:bg-teal shadow-2xs"
+            >
+              <Check className="size-3.5 text-mustard" strokeWidth={3} />
+              Accept Artwork & Complete Order
+            </button>
+          </div>
+        </div>
+      );
+    }
+
+    if (order.wips.length > 0) {
+      return (
+        <div className="flex flex-col justify-between gap-3 rounded-3xl border border-indigo-200 bg-indigo-50/70 p-4 sm:flex-row sm:items-center sm:p-5">
+          <div className="flex items-start gap-3">
+            <span className="grid size-10 shrink-0 place-items-center rounded-2xl bg-paper text-indigo-600 shadow-2xs">
+              <Sparkles className="size-5" />
+            </span>
+            <div>
+              <p className="text-xs font-semibold tracking-wider text-indigo-700 uppercase">
+                In Production · {hasUnapprovedWip ? 'New Progress Pass Posted' : 'WIPs Reviewed'}
+              </p>
+              <h3 className="font-display text-xl font-semibold text-ink">
+                {hasUnapprovedWip
+                  ? `Meru posted ${latestWip?.title || 'an in-production update'}!`
+                  : 'WIP passes reviewed! Meru is preparing the final master artwork.'}
+              </h3>
+              <p className="text-xs text-ink-soft">
+                {hasUnapprovedWip
+                  ? 'Inspect the colors, shading, and rendering in the vault below to approve or request small fixes.'
+                  : 'Meru is adding final rendering polish. Once the final master deliverable is posted, you can confirm completion.'}
+              </p>
+            </div>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                const el = document.getElementById('artwork-vault');
+                if (el) el.scrollIntoView({ behavior: 'smooth' });
+              }}
+              className="inline-flex shrink-0 items-center justify-center gap-1.5 rounded-full border border-line bg-paper px-4 py-2 text-xs font-medium text-ink transition hover:border-ink hover:bg-cream"
+            >
+              <ImagePlus className="size-3.5 text-teal" />
+              View WIP Vault ↓
+            </button>
+          </div>
+        </div>
+      );
+    }
+
+    return (
+      <div className="flex flex-col justify-between gap-3 rounded-3xl border border-lilac/35 bg-lilac-soft/65 p-4 sm:flex-row sm:items-center sm:p-5">
+        <div className="flex items-start gap-3">
+          <span className="grid size-10 shrink-0 place-items-center rounded-2xl bg-paper text-lilac">
+            <ShieldAlert className="size-5" />
+          </span>
+          <div>
+            <p className="text-xs font-semibold tracking-wider text-lilac uppercase">
+              Artist Working · Clean Lineart & Coloring
+            </p>
+            <h3 className="font-display text-xl font-semibold text-ink">
+              Sketch & payment verified! Meru is working on clean lineart, coloring, and lighting.
+            </h3>
+            <p className="text-xs text-ink-soft">
+              You’ll receive a notification here as soon as each progress WIP (lineart, base colors, shading) is posted.
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // sketching stage
   return (
     <div className="flex flex-col justify-between gap-3 rounded-3xl border border-lilac/35 bg-lilac-soft/65 p-4 sm:flex-row sm:items-center sm:p-5">
       <div className="flex items-start gap-3">
@@ -1579,12 +2156,10 @@ function TopActionBanner({
             Artist Working · No Client Action Needed Right Now
           </p>
           <h3 className="font-display text-xl font-semibold text-ink">
-            {order.stage === 'sketching'
-              ? 'Deposit verified! Meru is currently sketching your pose and composition.'
-              : 'Sketch & payment verified! Meru is working on clean lineart, coloring, and lighting.'}
+            Deposit verified! Meru is currently sketching your pose and composition.
           </h3>
           <p className="text-xs text-ink-soft">
-            You’ll receive an update here as soon as the next WIP is uploaded to your vault.
+            You’ll receive an update here as soon as the rough sketch WIP is uploaded to your vault.
           </p>
         </div>
       </div>

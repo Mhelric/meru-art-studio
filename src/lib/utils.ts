@@ -9,18 +9,56 @@ export const getTier = (id: TierId) => TIERS.find((t) => t.id === id)!;
 export const formatUsd = (n: number) =>
   new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(n);
 
-export const formatMoney = (usd: number, currency: Currency) =>
+export const formatMoney = (usd: number, currency: Currency, customRate?: number) =>
   currency === 'USD'
     ? formatUsd(usd)
     : new Intl.NumberFormat('en-PH', { style: 'currency', currency: 'PHP', maximumFractionDigits: 0 }).format(
-        Math.round(usd * STUDIO_AVAILABILITY.usdToPhpRate),
+        Math.round(usd * (customRate ?? STUDIO_AVAILABILITY.usdToPhpRate)),
       );
 
 export const formatShortDate = (iso: string) => {
+  if (!iso) return '';
+  // Handle full ISO timestamps (e.g. 2026-11-01T12:28:32.581139+00:00)
+  if (iso.includes('T')) {
+    const d = new Date(iso);
+    if (!isNaN(d.getTime())) {
+      const now = new Date();
+      const isToday =
+        d.getDate() === now.getDate() &&
+        d.getMonth() === now.getMonth() &&
+        d.getFullYear() === now.getFullYear();
+      if (isToday) {
+        return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      }
+      return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    }
+  }
+
+  // Handle plain YYYY-MM-DD strings
   const [y, m, d] = iso.split('-').map(Number);
   if (!y || !m || !d) return iso;
   return new Date(y, m - 1, d).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 };
+
+/**
+ * Returns a human-friendly relative time string ("Just now", "5m ago", "2h ago", "3d ago", "Nov 3").
+ */
+export function formatRelativeTime(iso: string): string {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return iso;
+  const now = Date.now();
+  const diffSec = Math.floor((now - d.getTime()) / 1000);
+  if (diffSec < 30) return 'Just now';
+  if (diffSec < 60) return `${diffSec}s ago`;
+  const diffMin = Math.floor(diffSec / 60);
+  if (diffMin < 60) return `${diffMin}m ago`;
+  const diffHr = Math.floor(diffMin / 60);
+  if (diffHr < 24) return `${diffHr}h ago`;
+  const diffDays = Math.floor(diffHr / 24);
+  if (diffDays < 7) return `${diffDays}d ago`;
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+}
 
 /**
  * Returns today's date in local calendar time (YYYY-MM-DD), avoiding UTC offset bugs for Manila (UTC+8)

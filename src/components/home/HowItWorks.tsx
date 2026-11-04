@@ -10,6 +10,7 @@ import {
 import { SectionHeading } from '@/components/ui/SectionHeading';
 import { Reveal } from '@/components/ui/Reveal';
 import { useStudio } from '@/context/StudioContext';
+import { getTier } from '@/lib/utils';
 
 const STEPS = [
   {
@@ -18,7 +19,13 @@ const STEPS = [
     desc: 'Pick your commission tier, upload character reference sheets, and describe desired poses, expressions, and vibe.',
     badge: 'No Upfront Charge',
     icon: FileText,
-    accent: 'coral',
+    accent: {
+      num: 'text-coral',
+      iconBg: 'bg-coral/10 text-coral',
+      hoverBorder: 'hover:border-coral/50',
+      badgeBg: 'bg-coral/10 text-coral',
+      badgeDot: 'bg-coral',
+    },
   },
   {
     num: '02',
@@ -26,7 +33,13 @@ const STEPS = [
     desc: 'Meru reviews your brief, confirms slot availability, and locks in estimated start and completion dates on the calendar.',
     badge: '1-on-1 Studio Slot',
     icon: Clock,
-    accent: 'mustard',
+    accent: {
+      num: 'text-amber-600',
+      iconBg: 'bg-amber-500/10 text-amber-600',
+      hoverBorder: 'hover:border-amber-500/50',
+      badgeBg: 'bg-amber-500/10 text-amber-700',
+      badgeDot: 'bg-amber-500',
+    },
   },
   {
     num: '03',
@@ -34,7 +47,13 @@ const STEPS = [
     desc: 'Verify upfront deposit to unlock the canvas. Meru posts watermarked composition and expression sketches to your order room.',
     badge: 'Full Refund Window',
     icon: Paintbrush,
-    accent: 'peach',
+    accent: {
+      num: 'text-orange-600',
+      iconBg: 'bg-orange-500/10 text-orange-600',
+      hoverBorder: 'hover:border-orange-500/50',
+      badgeBg: 'bg-orange-500/10 text-orange-700',
+      badgeDot: 'bg-orange-500',
+    },
   },
   {
     num: '04',
@@ -42,7 +61,13 @@ const STEPS = [
     desc: 'Approve the draft or request revisions with redlines. Settle the remaining balance as inking and coloring begin.',
     badge: '100% Transparency',
     icon: CheckCircle2,
-    accent: 'lilac',
+    accent: {
+      num: 'text-purple-600',
+      iconBg: 'bg-purple-500/10 text-purple-600',
+      hoverBorder: 'hover:border-purple-500/50',
+      badgeBg: 'bg-purple-500/10 text-purple-700',
+      badgeDot: 'bg-purple-500',
+    },
   },
   {
     num: '05',
@@ -50,7 +75,13 @@ const STEPS = [
     desc: 'Once completed, the physical watermark shield unlocks. Download full-resolution 300 DPI master PNG files from your vault.',
     badge: 'Instant Vault Download',
     icon: Download,
-    accent: 'teal',
+    accent: {
+      num: 'text-emerald-600',
+      iconBg: 'bg-emerald-500/10 text-emerald-600',
+      hoverBorder: 'hover:border-emerald-500/50',
+      badgeBg: 'bg-emerald-500/10 text-emerald-700',
+      badgeDot: 'bg-emerald-500',
+    },
   },
 ];
 
@@ -82,7 +113,25 @@ const TESTIMONIALS = [
 ];
 
 export function HowItWorks() {
-  const { openDrawer } = useStudio();
+  const { openDrawer, submittedOrders } = useStudio();
+
+  // Dynamically surface client reviews submitted upon commission completion
+  const liveReviews = submittedOrders
+    .filter((o) => o.review && (o.review.visibility === 'public' || o.review.visibility === 'anonymous'))
+    .map((o) => {
+      const isAnon = o.review!.visibility === 'anonymous';
+      const author = isAnon ? 'Anonymous Client' : o.review!.clientName || o.clientContact || 'Verified Client';
+      const tierName = o.tier ? getTier(o.tier).label : 'Custom Illustration';
+      return {
+        quote: o.review!.comment,
+        client: author,
+        platform: isAnon ? 'Anonymous · Verified Commission' : 'Verified Commission Client',
+        tier: tierName,
+        rating: o.review!.rating || 5,
+      };
+    });
+
+  const displayedTestimonials = [...liveReviews, ...TESTIMONIALS];
 
   return (
     <section id="how-it-works" className="py-20 sm:py-28">
@@ -96,22 +145,23 @@ export function HowItWorks() {
       <div className="mt-12 grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
         {STEPS.map((step, idx) => {
           const Icon = step.icon;
+          const { accent } = step;
           return (
             <Reveal
               key={step.num}
               delay={idx * 0.08}
-              className="group relative flex flex-col justify-between rounded-2xl border border-line bg-paper p-5 transition-all hover:border-ink/30 hover:shadow-sm"
+              className={`group relative flex flex-col justify-between rounded-2xl border border-line/80 bg-paper p-5 transition-all duration-300 hover:-translate-y-1 hover:shadow-md ${accent.hoverBorder}`}
             >
               <div>
                 <div className="mb-4 flex items-center justify-between">
-                  <span className="font-display text-2xl font-bold text-ink-mute group-hover:text-ink transition-colors">
+                  <span className={`font-display text-2xl font-bold transition-colors ${accent.num}`}>
                     {step.num}
                   </span>
-                  <span className="grid size-9 place-items-center rounded-xl bg-canvas text-ink group-hover:scale-105 transition-transform">
-                    <Icon className="size-4 text-coral" />
+                  <span className={`grid size-9 place-items-center rounded-xl transition-transform group-hover:scale-110 ${accent.iconBg}`}>
+                    <Icon className="size-4" />
                   </span>
                 </div>
-                <h4 className="font-display text-base font-semibold text-ink leading-snug">
+                <h4 className="font-display text-base font-semibold text-ink leading-snug group-hover:text-ink transition-colors">
                   {step.title}
                 </h4>
                 <p className="mt-2 text-xs leading-relaxed text-ink-soft">
@@ -120,7 +170,8 @@ export function HowItWorks() {
               </div>
 
               <div className="mt-5 pt-3 border-t border-line/60">
-                <span className="inline-block rounded-full bg-cream px-2.5 py-0.5 text-[10px] font-semibold text-ink-soft">
+                <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[10px] font-semibold ${accent.badgeBg}`}>
+                  <span className={`size-1.5 rounded-full ${accent.badgeDot}`} />
                   {step.badge}
                 </span>
               </div>
@@ -141,7 +192,10 @@ export function HowItWorks() {
             <p className="mt-1 text-xs font-medium text-ink-soft">On-Time Calendar Delivery</p>
           </div>
           <div className="border-b sm:border-b-0 sm:border-r border-line pb-4 sm:pb-0 sm:pr-4">
-            <p className="font-display text-3xl font-bold text-ink sm:text-4xl">5.0 ★</p>
+            <div className="flex items-center justify-center sm:justify-start gap-1 font-display text-3xl font-bold text-ink sm:text-4xl">
+              <span>5.0</span>
+              <Star className="size-6 text-[#f59e0b] fill-[#f59e0b]" />
+            </div>
             <p className="mt-1 text-xs font-medium text-ink-soft">Client Satisfaction Rating</p>
           </div>
           <div>
@@ -161,9 +215,9 @@ export function HowItWorks() {
         </div>
 
         <div className="grid gap-4 md:grid-cols-3">
-          {TESTIMONIALS.map((t, idx) => (
+          {displayedTestimonials.slice(0, 6).map((t, idx) => (
             <Reveal
-              key={t.client}
+              key={`${t.client}-${idx}`}
               delay={idx * 0.1}
               className="flex flex-col justify-between rounded-2xl border border-line bg-paper p-5"
             >

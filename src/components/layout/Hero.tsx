@@ -4,7 +4,8 @@ import { useEffect, useMemo, useState } from 'react';
 import { ARTIST, PORTFOLIO } from '@/data/artist';
 import { useStudio } from '@/context/StudioContext';
 import { ArtImage } from '@/components/portfolio/ArtImage';
-import { EASE, Reveal, WordReveal } from '@/components/ui/Reveal';
+import { StudioStatusBadge } from '@/components/ui/StudioStatusBadge';
+import { EASE, Reveal } from '@/components/ui/Reveal';
 import { ACCENT_CLASSES, TIER_ACCENT, formatUsd, getTier } from '@/lib/utils';
 import { scrollToTarget } from '@/lib/smoothScroll';
 import type { PortfolioItem } from '@/types';
@@ -17,6 +18,7 @@ import type { PortfolioItem } from '@/types';
 export function Hero() {
   const { setActiveTab, openLightbox, openDrawer } = useStudio();
   const [phraseIdx, setPhraseIdx] = useState(0);
+  const [expandedTagline, setExpandedTagline] = useState(false);
 
   useEffect(() => {
     const id = window.setInterval(() => {
@@ -36,41 +38,119 @@ export function Hero() {
   };
 
   return (
-    <section className="relative pt-32 pb-12 sm:pt-36 lg:pt-28 lg:pb-24">
+    <section className="relative min-h-[calc(100vh-4.5rem)] flex flex-col justify-center pt-[140px] pb-6 sm:pt-28 sm:pb-10 lg:pt-16 lg:pb-8">
       <div className="grid items-center gap-8 lg:grid-cols-12 lg:gap-12">
-        {/* Left editorial column — min-w-0 prevents the wide marquee track from stretching the CSS grid track on mobile */}
+        {/* Left editorial column */}
         <div className="min-w-0 lg:col-span-6">
           <Reveal immediate>
-            <div className="inline-flex items-center gap-2 rounded-full border border-line bg-paper py-1 pr-3.5 pl-1.5 sm:gap-2.5 sm:py-1.5 sm:pr-4 sm:pl-2">
+            <div className="inline-flex items-center gap-2 rounded-full border border-line bg-paper py-1.5 pr-3.5 pl-2 shadow-2xs sm:gap-2.5 sm:py-2 sm:pr-4 sm:pl-2.5">
               <img src="/brand/mark-192.png" alt="" className="size-6 rounded-full border border-line object-cover sm:size-7" />
-              <span className="text-xs font-medium text-ink">Welcome! I’m {ARTIST.nickname}</span>
-              <span className="inline-flex items-center gap-1.5 rounded-full bg-teal-soft px-2 py-0.5 text-[11px] font-medium text-teal">
-                <span className="size-1.5 rounded-full bg-teal" />
-                Open
-              </span>
+              <span className="text-xs font-semibold text-ink sm:text-sm">Welcome! I’m {ARTIST.nickname}</span>
+              <StudioStatusBadge size="sm" />
             </div>
           </Reveal>
 
-          <h1 className="mt-4 font-display text-[34px] leading-[1.08] font-semibold tracking-tight text-ink sm:mt-6 sm:text-5xl lg:text-[56px]">
-            <WordReveal text="I bring your characters to life through" delay={0.1} stagger={0.045} />{' '}
-            <span className="relative inline-block align-bottom">
-              <AnimatePresence mode="wait">
-                <motion.span
-                  key={phraseIdx}
-                  initial={{ y: '80%', opacity: 0, filter: 'blur(6px)' }}
-                  animate={{ y: 0, opacity: 1, filter: 'blur(0px)' }}
-                  exit={{ y: '-80%', opacity: 0, filter: 'blur(6px)' }}
-                  transition={{ duration: 0.55, ease: EASE }}
-                  className="inline-block italic text-coral underline decoration-mustard/70 decoration-wavy decoration-2 underline-offset-4 sm:underline-offset-8"
-                >
-                  {ARTIST.rotating[phraseIdx]}.
-                </motion.span>
-              </AnimatePresence>
-            </span>
-          </h1>
+          <div className="mt-4 sm:mt-6 h-[115px] sm:h-[155px] lg:h-[175px] overflow-hidden flex flex-col justify-start">
+            <h1 className="font-display text-[29px] leading-[1.15] font-semibold tracking-tight text-ink sm:text-[45px] sm:leading-[1.1] lg:text-[53px] lg:leading-[1.08]">
+              <span className="block">I bring your characters</span>
+              <span className="block">to life through</span>
+              <span className="relative block h-[1.25em] overflow-hidden">
+                <AnimatePresence mode="wait">
+                  <motion.span
+                    key={phraseIdx}
+                    initial={{ y: '80%', opacity: 0, filter: 'blur(6px)' }}
+                    animate={{ y: 0, opacity: 1, filter: 'blur(0px)' }}
+                    exit={{ y: '-80%', opacity: 0, filter: 'blur(6px)' }}
+                    transition={{ duration: 0.55, ease: EASE }}
+                    className="inline-block italic text-coral underline decoration-mustard/70 decoration-wavy decoration-2 underline-offset-4 sm:underline-offset-6"
+                  >
+                    {ARTIST.rotating[phraseIdx]}.
+                  </motion.span>
+                </AnimatePresence>
+              </span>
+            </h1>
+          </div>
 
-          {/* Mobile & tablet immediate art showcase — placed RIGHT under the headline so art is visible on open */}
-          <Reveal immediate delay={0.22} className="mt-6 w-full overflow-hidden lg:hidden">
+          {/* Tagline: Minimal expandable text on mobile, full on desktop */}
+          <Reveal immediate delay={0.25}>
+            <div className="mt-3.5 sm:mt-5 max-w-xl">
+              {/* Mobile tap-to-expand: minimal, pure text without box or white background */}
+              <div className="sm:hidden">
+                <button
+                  type="button"
+                  onClick={() => setExpandedTagline((prev) => !prev)}
+                  className="block text-left text-xs leading-relaxed text-ink-soft cursor-pointer select-none transition-colors hover:text-ink active:opacity-80"
+                  aria-expanded={expandedTagline}
+                >
+                  <span>Soft, expressive anime illustrations, chibis & clean graphics</span>
+                  <AnimatePresence initial={false}>
+                    {expandedTagline ? (
+                      <motion.span
+                        key="extra"
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        exit={{ opacity: 0 }}
+                        transition={{ duration: 0.25, ease: EASE }}
+                        className="inline"
+                      >
+                        {' '}— made just for you. Tap any artwork to inspect it closely, or choose a tier below with live USD & PHP rates.
+                      </motion.span>
+                    ) : (
+                      <motion.span
+                        key="ellipsis"
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        exit={{ opacity: 0 }}
+                        className="text-coral/80 font-medium ml-0.5 inline"
+                      >
+                        ...
+                      </motion.span>
+                    )}
+                  </AnimatePresence>
+                </button>
+              </div>
+
+              {/* Desktop full view */}
+              <p className="hidden sm:block text-sm leading-relaxed text-ink-soft sm:text-[17px]">
+                {ARTIST.tagline} Tap any artwork to inspect it closely, or choose a tier below with live USD & PHP rates.
+              </p>
+            </div>
+          </Reveal>
+
+          {/* Primary CTAs: Full-width Commission Now on top, side-by-side Portfolio & Rules underneath (matching mobile & desktop reference) */}
+          <Reveal immediate delay={0.35}>
+            <div className="mt-5 sm:mt-7 max-w-md w-full flex flex-col gap-2.5 sm:gap-3">
+              <button
+                type="button"
+                onClick={() => openDrawer()}
+                className="group relative flex w-full items-center justify-center gap-2 rounded-full bg-coral px-7 py-3.5 sm:py-4 text-sm sm:text-base font-bold text-white shadow-lg shadow-coral/30 ring-4 ring-coral/20 transition-all duration-300 hover:scale-[1.02] hover:bg-ink active:scale-95"
+              >
+                <Sparkles className="size-4.5 text-white animate-pulse" />
+                <span>Commission Now</span>
+              </button>
+
+              <div className="grid grid-cols-2 gap-2.5 sm:gap-3 w-full">
+                <button
+                  type="button"
+                  onClick={() => scrollToTarget('#gallery', 0)}
+                  className="inline-flex items-center justify-center gap-1.5 rounded-full border border-line bg-paper px-4 py-3 sm:py-3.5 text-xs sm:text-sm font-semibold text-ink shadow-2xs transition-colors hover:border-ink hover:bg-cream"
+                >
+                  <span>Portfolio ({PORTFOLIO.length})</span>
+                  <ArrowDownRight className="size-3.5 sm:size-4 shrink-0" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('rules')}
+                  className="inline-flex items-center justify-center gap-1.5 rounded-full border border-line bg-paper px-4 py-3 sm:py-3.5 text-xs sm:text-sm font-semibold text-ink shadow-2xs transition-colors hover:border-ink hover:bg-cream"
+                >
+                  <span>Rules & TOS</span>
+                </button>
+              </div>
+            </div>
+          </Reveal>
+
+          {/* Mobile immediate art showcase strip */}
+          <Reveal immediate delay={0.45} className="mt-7 w-full overflow-hidden lg:hidden">
             <div className="mask-fade-x overflow-hidden py-1">
               <div
                 className="flex w-max animate-marquee-x gap-3 active:[animation-play-state:paused]"
@@ -89,58 +169,11 @@ export function Hero() {
               </div>
             </div>
           </Reveal>
-
-          <Reveal immediate delay={0.3}>
-            <p className="mt-5 max-w-xl text-sm leading-relaxed text-ink-soft sm:mt-6 sm:text-[17px]">
-              {ARTIST.tagline} Tap any artwork to inspect it closely, or pick a commission tier with live USD & PHP pricing.
-            </p>
-          </Reveal>
-
-          {/* Primary CTAs */}
-          <Reveal immediate delay={0.4}>
-            <div className="mt-6 flex flex-wrap items-center gap-2.5 sm:mt-8 sm:gap-3">
-              <button
-                onClick={() => openDrawer()}
-                className="group inline-flex flex-1 items-center justify-center gap-2 rounded-full bg-ink px-5 py-3 text-xs font-medium text-white transition-all duration-300 hover:bg-coral sm:flex-none sm:px-6 sm:py-3.5 sm:text-sm"
-              >
-                <Sparkles className="size-4 text-mustard" />
-                Commission Calculator
-              </button>
-              <button
-                onClick={() => scrollToTarget('#gallery')}
-                className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-full border border-line bg-paper px-5 py-3 text-xs font-medium text-ink transition-colors hover:border-ink/30 hover:bg-cream sm:flex-none sm:px-6 sm:py-3.5 sm:text-sm"
-              >
-                Portfolio ({PORTFOLIO.length})
-                <ArrowDownRight className="size-4" />
-              </button>
-              <button
-                onClick={() => setActiveTab('rules')}
-                className="w-full py-1 text-center text-xs font-medium text-ink-soft underline decoration-line underline-offset-4 transition-colors hover:text-ink sm:w-auto sm:px-3 sm:py-2 sm:text-sm"
-              >
-                Rules & TOS →
-              </button>
-            </div>
-          </Reveal>
-
-          {/* Identity & policy chips */}
-          <Reveal immediate delay={0.5}>
-            <div className="mt-5 flex flex-wrap gap-1.5 sm:mt-6 sm:gap-2">
-              {ARTIST.roles.map((r) => (
-                <span key={r} className="chip text-[11px] sm:text-xs">
-                  <Sparkles className="size-3 text-coral" />
-                  {r}
-                </span>
-              ))}
-              <span className="chip text-[11px] sm:text-xs">Turnaround · {ARTIST.turnaround}</span>
-              <span className="chip text-[11px] sm:text-xs">PayPal · GCash</span>
-              <span className="chip border-coral/30 bg-coral-soft text-[11px] text-coral sm:text-xs">No NFTs</span>
-            </div>
-          </Reveal>
         </div>
 
-        {/* Right live art showcase — desktop dual vertical marquee */}
+        {/* Right live art showcase — desktop dual vertical marquee dynamically filling viewport */}
         <Reveal immediate delay={0.2} className="hidden lg:col-span-6 lg:block">
-          <div className="mask-fade-y relative grid h-[600px] grid-cols-2 gap-4 overflow-hidden pr-1">
+          <div className="mask-fade-y relative grid h-[calc(100vh-7rem)] min-h-[640px] max-h-[860px] grid-cols-2 gap-4 overflow-hidden pr-1">
             <MarqueeColumn items={colA} direction="up" duration="44s" onSelect={openPiece} />
             <MarqueeColumn items={colB} direction="down" duration="50s" onSelect={openPiece} />
           </div>

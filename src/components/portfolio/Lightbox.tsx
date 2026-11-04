@@ -100,20 +100,20 @@ export function Lightbox() {
             exit={{ opacity: 0, scale: 0.96, y: 8 }}
             transition={{ duration: 0.32, ease: EASE }}
             onClick={(e) => e.stopPropagation()}
-            className="relative flex max-h-[90dvh] w-full max-w-4xl flex-col overflow-hidden rounded-[28px] border border-line bg-paper shadow-xl md:flex-row"
+            className="relative flex max-h-[88dvh] w-full max-w-5xl flex-col overflow-hidden rounded-[26px] border border-line bg-paper shadow-2xl md:flex-row md:items-stretch"
           >
             {/* Close button — anchored inside the card so it is never half-outside */}
             <button
               type="button"
               onClick={closeLightbox}
               aria-label="Close"
-              className="absolute top-3 right-3 z-20 grid size-9 place-items-center rounded-full border border-line bg-paper/95 text-ink shadow-xs backdrop-blur transition hover:bg-cream"
+              className="absolute top-2.5 right-2.5 z-20 grid size-8 sm:size-9 place-items-center rounded-full border border-line bg-paper/95 text-ink shadow-xs backdrop-blur transition hover:bg-cream"
             >
               <X className="size-4" />
             </button>
 
-            {/* Artwork stage — strict height cap + overflow-hidden so tall portraits never spill over the title below */}
-            <div className="relative flex h-[48dvh] shrink-0 items-center justify-center overflow-hidden bg-cream/60 p-3 sm:h-[54dvh] md:h-auto md:max-h-[84dvh] md:flex-1 md:p-6">
+            {/* Artwork stage — properly scaled so tall images fit comfortably and buttons are never pushed downwards */}
+            <div className="relative flex h-[35dvh] sm:h-[42dvh] md:h-auto md:max-h-[84dvh] shrink-0 items-center justify-center overflow-hidden bg-cream/40 p-2 sm:p-4 md:flex-1 md:p-6">
               <AnimatePresence mode="wait">
                 <motion.div
                   key={item.id}
@@ -130,7 +130,7 @@ export function Lightbox() {
                     keepAspect={false}
                     eager
                     className="flex size-full items-center justify-center bg-transparent"
-                    imgClassName="max-h-full max-w-full object-contain rounded-xl"
+                    imgClassName="max-h-[33dvh] sm:max-h-[40dvh] md:max-h-[78dvh] w-auto max-w-full object-contain rounded-xl shadow-xs"
                   />
                 </motion.div>
               </AnimatePresence>
@@ -159,8 +159,8 @@ export function Lightbox() {
             </div>
 
             {/* Info & CTA panel */}
-            <div className="flex flex-1 flex-col justify-between gap-3.5 overflow-y-auto border-t border-line bg-paper p-4 sm:p-6 md:w-80 md:flex-none md:border-t-0 md:border-l">
-              <div className="space-y-3">
+            <div className="flex flex-1 flex-col justify-between gap-2.5 overflow-y-auto border-t border-line bg-paper p-3.5 sm:p-6 md:w-80 md:flex-none md:border-t-0 md:border-l">
+              <div className="space-y-2.5 sm:space-y-3">
                 <div className="flex items-center justify-between gap-2">
                   <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium ${accent.soft} ${accent.text}`}>
                     <span className={`size-1.5 rounded-full ${accent.dot}`} />
@@ -172,39 +172,39 @@ export function Lightbox() {
                 </div>
 
                 <div>
-                  <h3 className="font-display text-2xl leading-tight font-semibold text-ink sm:text-3xl">
+                  <h3 className="font-display text-xl leading-tight font-semibold text-ink sm:text-3xl">
                     {item.title}
                   </h3>
-                  <div className="mt-2 flex flex-wrap gap-1.5">
+                  <div className="mt-1.5 flex flex-wrap gap-1.5">
                     {item.tags.map((t) => (
-                      <span key={t} className="chip py-0.5 text-[11px]">
+                      <span key={t} className="chip py-0.5 text-[10px] sm:text-[11px]">
                         {t}
                       </span>
                     ))}
                   </div>
                 </div>
 
-                <div className="flex items-center justify-between gap-3 rounded-2xl border border-line bg-canvas px-3.5 py-2.5">
+                <div className="flex items-center justify-between gap-3 rounded-2xl border border-line bg-canvas p-2.5 sm:px-3.5 sm:py-2.5">
                   <div>
-                    <p className="text-[11px] font-medium text-ink-mute">{tier.label} base rate</p>
-                    <p className="text-xs text-ink-soft">{tier.description}</p>
+                    <p className="text-[10px] sm:text-[11px] font-medium text-ink-mute">{tier.label} base rate</p>
+                    <p className="text-[11px] sm:text-xs text-ink-soft">{tier.description}</p>
                   </div>
-                  <p className="shrink-0 font-display text-2xl font-semibold text-ink">
+                  <p className="shrink-0 font-display text-xl sm:text-2xl font-semibold text-ink">
                     {formatUsd(tier.basePriceUsd)}
                   </p>
                 </div>
               </div>
 
-              <div className="space-y-2 pt-1">
+              <div className="shrink-0 space-y-1.5 pt-1">
                 <button
                   type="button"
                   onClick={() => {
                     closeLightbox();
                     commissionTier(item.tier);
                   }}
-                  className="inline-flex w-full items-center justify-center gap-2 rounded-full bg-ink px-5 py-3 text-sm font-medium text-white transition-colors hover:bg-coral"
+                  className="inline-flex w-full items-center justify-center gap-2 rounded-full bg-ink px-4 py-2.5 sm:py-3 text-xs sm:text-sm font-semibold text-white transition-colors hover:bg-coral shadow-sm"
                 >
-                  <Sparkles className="size-4 text-mustard" /> Commission This Style ({formatUsd(tier.basePriceUsd)})
+                  <Sparkles className="size-3.5 sm:size-4 text-mustard" /> Commission This Style ({formatUsd(tier.basePriceUsd)})
                 </button>
                 <p className="hidden text-center text-[11px] text-ink-mute md:block">
                   Use ← → arrow keys to browse · Esc to close

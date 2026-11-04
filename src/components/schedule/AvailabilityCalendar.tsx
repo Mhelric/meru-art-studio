@@ -12,8 +12,8 @@ import { useMemo, useState } from 'react';
 import { STUDIO_AVAILABILITY } from '@/data/schedule';
 import { useStudio } from '@/context/StudioContext';
 import { ACCENT_CLASSES, cn, formatShortDate, getTier, getLocalTodayDate, getLocalFutureDate } from '@/lib/utils';
-import { SectionHeading } from '@/components/ui/SectionHeading';
 import { EASE, Reveal } from '@/components/ui/Reveal';
+import { useStudioStatus } from '@/hooks/useStudioStatus';
 import type { BlockedRange, PublicQueueSlot } from '@/types';
 
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
@@ -26,6 +26,7 @@ function toIsoDate(year: number, monthIndex: number, day: number) {
 
 export function AvailabilityCalendar() {
   const { queueSlots, maxSlots, openDrawer, draft, studioSettings } = useStudio();
+  const statusInfo = useStudioStatus();
 
   // Dynamic calendar cursor defaulting to current local month and year
   const [cursor, setCursor] = useState<{ year: number; month: number }>(() => {
@@ -83,34 +84,51 @@ export function AvailabilityCalendar() {
   };
 
   return (
-    <section className="pt-28 pb-10 sm:pt-32">
+    <section className="pt-32 pb-2 sm:pt-32 sm:pb-10">
       {/* Live Status Banner + Quick CTA */}
-      <Reveal className="mb-8 flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
-        <div>
-          <div className="mb-3 inline-flex flex-wrap items-center gap-2 rounded-full border border-teal/30 bg-teal-soft px-3.5 py-1.5 text-xs font-medium text-teal">
-            <span className="relative flex size-2">
-              <span className="absolute inline-flex size-full animate-ping rounded-full bg-teal opacity-75" />
-              <span className="relative inline-flex size-2 rounded-full bg-teal" />
-            </span>
-            <span>
-              Commissions: <strong className="font-semibold uppercase">{studioSettings.status}</strong> ·{' '}
-              <strong>
-                {openSlotsCount}/{maxSlots} Slots Available
-              </strong>
-            </span>
+      <Reveal className="mb-6 sm:mb-8 flex flex-col justify-between gap-3 sm:gap-4 sm:flex-row sm:items-end">
+        <div className="w-full text-center sm:text-left">
+          {/* Centered on mobile */}
+          <div className="flex justify-center sm:justify-start">
+            <div
+              className={cn(
+                'mb-2 inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-medium transition-colors sm:mb-3 sm:px-3.5 sm:py-1.5',
+                statusInfo.badgeBg,
+                statusInfo.badgeTextClass,
+                statusInfo.badgeBorderClass,
+              )}
+            >
+              <span className="relative flex size-2">
+                <span
+                  className={cn(
+                    'absolute inline-flex size-full rounded-full opacity-75 motion-safe:animate-ping motion-reduce:hidden',
+                    statusInfo.pingColor,
+                  )}
+                />
+                <span className={cn('relative inline-flex size-2 rounded-full', statusInfo.dotColor)} />
+              </span>
+              <span>
+                Commissions: <strong className="font-semibold uppercase">{statusInfo.badgeText}</strong> ·{' '}
+                <strong>
+                  {openSlotsCount}/{maxSlots} Slots Available
+                </strong>
+              </span>
+            </div>
           </div>
 
-          <SectionHeading
-            eyebrow="Public Queue & Schedule"
-            title="Availability & live commission queue"
-            subtitle="Tap any green open date on the calendar to reserve your preferred start window. Client names are anonymised for privacy."
-          />
+          <p className="eyebrow mt-1 mb-1 text-[11px] font-semibold text-coral sm:text-xs">Public Queue & Schedule</p>
+          <h2 className="font-display text-2xl font-semibold tracking-tight text-ink sm:text-[38px] sm:leading-[1.1]">
+            Availability & live commission queue
+          </h2>
+          <p className="mt-1 max-w-2xl text-xs sm:text-sm text-ink-soft leading-relaxed sm:mt-2">
+            Tap any green open date on the calendar to reserve your preferred start window. Client names are anonymised for privacy.
+          </p>
         </div>
 
         <button
           type="button"
           onClick={() => openDrawer({ step: 1, preferredDate: selectedDay ?? undefined })}
-          className="mb-10 inline-flex shrink-0 items-center justify-center gap-2 rounded-full bg-ink px-5 py-3 text-xs font-medium text-white transition-colors hover:bg-coral sm:text-sm"
+          className="mt-2 sm:mt-0 inline-flex w-full sm:w-auto shrink-0 items-center justify-center gap-2 rounded-full bg-ink px-5 py-3 text-xs font-semibold text-white transition-colors hover:bg-coral sm:text-sm shadow-xs"
         >
           <Sparkles className="size-4 text-mustard" />
           Request Open Slot ({openSlotsCount} left)
@@ -118,8 +136,8 @@ export function AvailabilityCalendar() {
       </Reveal>
 
       <div className="grid gap-6 lg:grid-cols-12">
-        {/* Left: Anonymised Active Queue Cards (5 cols on lg) */}
-        <div className="space-y-3.5 lg:col-span-5">
+        {/* Anonymised Active Queue Cards: order-2 on mobile (after calendar), order-1 on lg (left 5 cols) */}
+        <div className="space-y-3.5 order-2 lg:order-1 lg:col-span-5">
           <div className="flex items-center justify-between px-1">
             <h3 className="font-display text-xl font-semibold text-ink">
               Active Client Queue ({queueSlots.length}/{maxSlots})
@@ -208,8 +226,8 @@ export function AvailabilityCalendar() {
           </div>
         </div>
 
-        {/* Right: Color-Coded Monthly Calendar Grid (7 cols on lg) */}
-        <Reveal delay={0.1} className="card flex flex-col justify-between p-4 sm:p-6 lg:col-span-7">
+        {/* Interactive Availability Calendar: order-1 on mobile (shows first), order-2 on lg (right 7 cols) */}
+        <Reveal delay={0.1} className="card flex flex-col justify-between p-4 sm:p-6 order-1 lg:order-2 lg:col-span-7">
           <div>
             {/* Calendar Header */}
             <div className="mb-4 flex flex-wrap items-center justify-between gap-2">

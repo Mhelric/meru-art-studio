@@ -184,7 +184,10 @@ export function DeleteOrderDialog({
               </div>
             ) : (
               <div className="mt-4 rounded-2xl border border-coral/30 bg-coral-soft/50 p-4 text-xs text-ink">
-                <p className="font-semibold text-coral">⚠️ Destructive Action (Cannot Be Undone):</p>
+                <p className="flex items-center gap-1.5 font-semibold text-coral">
+                  <AlertTriangle className="size-4 shrink-0" />
+                  <span>Destructive Action (Cannot Be Undone):</span>
+                </p>
                 <ul className="mt-2 list-disc space-y-1 pl-4 text-ink-soft">
                   <li>Permanently deletes this commission and all chat history from the database.</li>
                   <li>Purges uploaded client references, chat attachments, WIP previews, and 300 DPI master files from storage buckets.</li>

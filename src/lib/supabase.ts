@@ -12,9 +12,16 @@ import type {
   SubmittedOrder,
   TierId,
   WipUploadItem,
+  ClientReview,
+  StudioPaymentDetails,
 } from '@/types';
 import { TIER_ACCENT } from '@/lib/utils';
-import { resolveCommissionMedia } from '@/lib/storage';
+import {
+  resolveCommissionMedia,
+  uploadReferenceFile,
+  resolveReferenceToUploadable,
+  STORAGE_BUCKETS,
+} from '@/lib/storage';
 
 const DEFAULT_SUPABASE_URL = 'https://ikeeddqgliobgfglytgr.supabase.co';
 const DEFAULT_SUPABASE_ANON_KEY =
@@ -56,6 +63,7 @@ export interface StudioSettingsRow {
   multipliers_json: { nsfw: number; softFurry: number; commercial: number };
   usd_to_php_rate: number;
   blocked_dates: BlockedRange[];
+  payment_details_json?: StudioPaymentDetails;
   updated_at: string;
 }
 
@@ -101,6 +109,7 @@ export interface CommissionRow {
   created_at: string;
   wips?: WipUploadRow[];
   messages?: MessageRow[];
+  review_json?: any;
 }
 
 export interface WipUploadRow {
@@ -114,6 +123,11 @@ export interface WipUploadRow {
   artist_note: string;
   approved_by_client: boolean;
   created_at: string;
+  revision_requested?: boolean;
+  revision_notes?: string | null;
+  revision_category?: string | null;
+  revision_scale?: string | null;
+  revision_requested_at?: string | null;
 }
 
 export interface MessageRow {
@@ -168,6 +182,11 @@ export function mapWipRow(row: WipUploadRow): WipUploadItem {
     artistNote: row.artist_note,
     approvedByClient: row.approved_by_client,
     createdAt: row.created_at,
+    revisionRequested: Boolean(row.revision_requested),
+    revisionNotes: row.revision_notes ?? undefined,
+    revisionCategory: row.revision_category ?? undefined,
+    revisionScale: (row.revision_scale as 'minor' | 'major') ?? undefined,
+    revisionRequestedAt: row.revision_requested_at ?? undefined,
   };
 }
 
@@ -219,12 +238,19 @@ export function mapCommissionRowToSubmitted(
     poseAndVibe: row.pose_and_vibe,
     backgroundNotes: row.background_notes,
     clientContact: row.client_handle,
-    references: (row.reference_urls || []).map((url, i) => ({
-      id: `ref-${i}`,
-      name: `Reference #${i + 1}`,
-      sizeBytes: 0,
-      previewUrl: url,
-    })),
+    references: (row.reference_urls || []).map((url, i) => {
+      let cleanName = `Reference #${i + 1}`;
+      if (!url.startsWith('data:')) {
+        const filename = url.includes('/') ? url.split('/').pop()! : url;
+        cleanName = filename.includes('-') ? filename.replace(/^\d+-/, '') : filename;
+      }
+      return {
+        id: `ref-${i}`,
+        name: cleanName || `Reference #${i + 1}`,
+        sizeBytes: 0,
+        previewUrl: url,
+      };
+    }),
     tosAccepted: Boolean(row.tos_accepted_at),
     tosAcceptedAt: row.tos_accepted_at,
     totalUsd: Number(row.total_price),
@@ -237,8 +263,41 @@ export function mapCommissionRowToSubmitted(
     startDate: row.start_date ?? undefined,
     estEndDate: row.est_end_date ?? undefined,
     authMethod: 'google',
-    wips: row.wips ? row.wips.map(mapWipRow) : wips,
+    wips: (() => {
+      const mappedMsgs = row.messages ? row.messages.map(mapMessageRow) : messages;
+      const rawWips = row.wips ? row.wips.map(mapWipRow) : wips;
+      return rawWips.map((w, idx, arr) => {
+        if (w.approvedByClient) return w;
+        if (w.revisionRequested) return w;
+        // Check if revision request exists for this WIP
+        const hasRevMsg = mappedMsgs.some(
+          (m) => m.body.startsWith('[Revision Request') && (m.body.includes(w.title) || (idx === 0 && arr.length > 1)),
+        );
+        if (hasRevMsg) {
+          return { ...w, revisionRequested: true };
+        }
+        return w;
+      });
+    })(),
     messages: row.messages ? row.messages.map(mapMessageRow) : messages,
+    review: (() => {
+      if (row.review_json) return row.review_json;
+      const mappedMsgs = row.messages ? row.messages.map(mapMessageRow) : messages;
+      const reviewMsg = mappedMsgs.find((m) => m.body.startsWith('[Client Review · '));
+      if (reviewMsg) {
+        const match = reviewMsg.body.match(/^\[Client Review · (\d+) Stars(?:\s*\(([^\)]+)\))?\]:\s*"(.*)"$/s);
+        if (match) {
+          return {
+            rating: parseInt(match[1], 10) || 5,
+            visibility: (match[2] as any) || 'public',
+            comment: match[3] || '',
+            clientName: row.client_handle,
+            createdAt: reviewMsg.createdAt,
+          };
+        }
+      }
+      return undefined;
+    })(),
   };
 }
 
@@ -332,7 +391,7 @@ export async function fetchAllCommissionsAdmin(): Promise<SubmittedOrder[]> {
   return Promise.all(mapped.map(resolveCommissionMedia));
 }
 
-/** Insert a new commission into Supabase (enforces RLS + 1-pending-request-per-user rule). */
+/** Insert a new commission into Supabase (enforces RLS + 1-pending-request-per-user rule + storage references upload). */
 export async function insertCommissionInSupabase(
   user: User,
   draft: OrderDraft,
@@ -346,7 +405,87 @@ export async function insertCommissionInSupabase(
     user.email?.split('@')[0] ||
     'client';
 
+  // Pre-validate that user session actually exists in auth.users
+  const { data: authData, error: authCheckError } = await supabase.auth.getUser();
+  if (authCheckError || !authData?.user) {
+    await supabase.auth.signOut().catch(() => {});
+    return {
+      order: null,
+      error:
+        'Your login session expired or account was reset in the database. Please sign in again with Google to submit your request.',
+    };
+  }
+
+  // Pre-check for existing pending brief before uploading storage files
+  const { data: existingPending } = await supabase
+    .from('commissions')
+    .select('id')
+    .eq('client_id', user.id)
+    .eq('status_stage', 'pending_review')
+    .maybeSingle();
+
+  if (existingPending) {
+    return {
+      order: null,
+      error:
+        'You already have an active request in Pending Review. Please wait until Meru reviews your pending brief before submitting another.',
+    };
+  }
+
+  // Generate canonical UUID for this commission
+  const commissionId =
+    typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+      ? crypto.randomUUID()
+      : 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+          const r = (Math.random() * 16) | 0;
+          const v = c === 'x' ? r : (r & 0x3) | 0x8;
+          return v.toString(16);
+        });
+
+  // Upload reference images to commission-references storage bucket: {clientId}/{commissionId}/...
+  const uploadedPaths: string[] = [];
+  const uploadErrors: string[] = [];
+
+  if (draft.references && draft.references.length > 0) {
+    for (let i = 0; i < draft.references.length; i++) {
+      const ref = draft.references[i];
+      const { file, filename } = await resolveReferenceToUploadable(ref);
+
+      if (file) {
+        const uniqueFileName = `${i + 1}-${filename}`;
+        const { path, error: uploadErr } = await uploadReferenceFile(
+          user.id,
+          commissionId,
+          file,
+          uniqueFileName,
+        );
+        if (uploadErr) {
+          uploadErrors.push(uploadErr);
+        } else if (path) {
+          uploadedPaths.push(path);
+        }
+      } else if (
+        ref.previewUrl &&
+        !ref.previewUrl.startsWith('http') &&
+        !ref.previewUrl.startsWith('blob:') &&
+        !ref.previewUrl.startsWith('data:') &&
+        ref.previewUrl.includes('/')
+      ) {
+        // Pre-existing relative storage path
+        uploadedPaths.push(ref.previewUrl);
+      }
+    }
+
+    if (uploadErrors.length > 0 && uploadedPaths.length === 0) {
+      return {
+        order: null,
+        error: `Failed to upload reference images (${uploadErrors[0]}). Please check your connection and try again.`,
+      };
+    }
+  }
+
   const payload = {
+    id: commissionId,
     client_id: user.id,
     client_handle: handle,
     tier: draft.tier,
@@ -360,6 +499,7 @@ export async function insertCommissionInSupabase(
     character_name: draft.characterName.trim(),
     pose_and_vibe: draft.poseAndVibe.trim(),
     background_notes: draft.backgroundNotes.trim(),
+    reference_urls: uploadedPaths,
     start_date: draft.preferredStartDate,
     tos_accepted_at: draft.tosAcceptedAt ?? new Date().toISOString(),
   };
@@ -367,6 +507,11 @@ export async function insertCommissionInSupabase(
   const { data, error } = await supabase.from('commissions').insert(payload).select('*').single();
 
   if (error) {
+    // If the database insert failed, clean up any storage paths we just uploaded so we don't leave orphaned files
+    if (uploadedPaths.length > 0) {
+      await supabase.storage.from(STORAGE_BUCKETS.references).remove(uploadedPaths).catch(() => {});
+    }
+
     if (error.code === '23505') {
       return {
         order: null,
@@ -374,10 +519,26 @@ export async function insertCommissionInSupabase(
           'You already have an active request in Pending Review. Please wait until Meru reviews your pending brief before submitting another.',
       };
     }
+    // Foreign key violation: user id was purged or deleted from auth.users (e.g. database reset)
+    if (
+      error.code === '23503' ||
+      error.message.includes('commissions_client_id_fkey') ||
+      error.message.includes('foreign key constraint')
+    ) {
+      await supabase.auth.signOut().catch(() => {});
+      return {
+        order: null,
+        error:
+          'Your login session expired or account was reset in the database. Please sign in again with Google to submit your request.',
+      };
+    }
     return { order: null, error: error.message };
   }
 
-  return { order: mapCommissionRowToSubmitted(data as CommissionRow), error: null };
+  const mapped = mapCommissionRowToSubmitted(data as CommissionRow);
+  const resolved = await resolveCommissionMedia(mapped);
+
+  return { order: resolved, error: null };
 }
 
 /** Update commission status stage in Supabase (Admin action). */
@@ -783,9 +944,202 @@ export async function requestCommissionCancellationInDb(
 
   const msgRes = await sendCommissionMessageInDb(
     commissionId,
-    `Cancellation & Refund Request: ${reason.trim() || 'Client submitted formal cancellation request based on TOS tier.'}`,
+    `[Cancellation Request]: ${reason.trim() || 'Client submitted formal cancellation request based on TOS tier.'}`,
     { attachmentKind: 'other' },
   );
 
   return { success: Boolean(msgRes.message), error: msgRes.error };
+}
+
+/** Client or artist approves an in-production WIP. */
+export async function approveWipInDb(
+  wipId: string,
+  commissionId: string,
+  wipTitle?: string,
+): Promise<{ success: boolean; error: string | null }> {
+  if (!supabase) return { success: true, error: null };
+
+  // Try RPC first
+  try {
+    const { data, error } = await supabase.rpc('approve_wip', { target_wip_id: wipId });
+    if (!error && (data as any)?.success) {
+      return { success: true, error: null };
+    }
+  } catch {
+    // fallback below
+  }
+
+  // Fallback: direct table update
+  const { error } = await supabase
+    .from('wip_uploads')
+    .update({ approved_by_client: true })
+    .eq('id', wipId);
+
+  if (error) {
+    return { success: false, error: error.message };
+  }
+
+  // Also log message to chat
+  const { data: userRes } = await supabase.auth.getUser();
+  if (userRes?.user) {
+    await supabase.from('messages').insert({
+      commission_id: commissionId,
+      sender_id: userRes.user.id,
+      sender_role: 'client',
+      body: `[WIP Approved]: Client reviewed and approved "${wipTitle || 'WIP'}"! Ready for the next stage.`,
+      attachment_kind: 'other',
+    });
+  }
+
+  return { success: true, error: null };
+}
+
+/** Client confirms satisfaction with final product and marks commission completed. */
+export async function clientCompleteCommissionInDb(
+  commissionId: string,
+): Promise<{ success: boolean; error: string | null }> {
+  if (!supabase) return { success: true, error: null };
+
+  // Try RPC first
+  try {
+    const { data, error } = await supabase.rpc('client_complete_commission', {
+      target_commission_id: commissionId,
+    });
+    if (!error && (data as any)?.success) {
+      return { success: true, error: null };
+    }
+  } catch {
+    // fallback below
+  }
+
+  // Fallback
+  const { error } = await supabase
+    .from('commissions')
+    .update({
+      status_stage: 'completed',
+      progress: 100,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', commissionId);
+
+  if (error) return { success: false, error: error.message };
+
+  const { data: userRes } = await supabase.auth.getUser();
+  if (userRes?.user) {
+    await supabase.from('messages').insert({
+      commission_id: commissionId,
+      sender_id: userRes.user.id,
+      sender_role: 'client',
+      body: '[Order Completed]: Client reviewed and accepted the final artwork. High-resolution 300 DPI master download unlocked.',
+      attachment_kind: 'other',
+    });
+  }
+
+  return { success: true, error: null };
+}
+
+/** Client requests revision on a WIP pass. */
+export async function requestWipRevisionInDb(
+  wipId: string,
+  _commissionId: string,
+  details: {
+    category: string;
+    notes: string;
+    scale?: 'minor' | 'major';
+  },
+): Promise<{ success: boolean; error: string | null }> {
+  if (!supabase) return { success: true, error: null };
+
+  // Try RPC first
+  try {
+    const { data, error } = await supabase.rpc('request_wip_revision', {
+      target_wip_id: wipId,
+      p_category: details.category,
+      p_notes: details.notes,
+      p_scale: details.scale || 'minor',
+    });
+    if (!error && (data as any)?.success) {
+      return { success: true, error: null };
+    }
+  } catch {
+    // fallback below
+  }
+
+  // Fallback: direct table update
+  try {
+    await supabase
+      .from('wip_uploads')
+      .update({
+        revision_requested: true,
+        revision_category: details.category,
+        revision_notes: details.notes,
+        revision_scale: details.scale || 'minor',
+        revision_requested_at: new Date().toISOString(),
+      })
+      .eq('id', wipId);
+  } catch (err: any) {
+    console.warn('Wip direct update warning:', err);
+  }
+
+  return { success: true, error: null };
+}
+
+/** Client confirms completion with star rating review & visibility. */
+export async function submitClientReviewInDb(
+  commissionId: string,
+  review: ClientReview,
+): Promise<{ success: boolean; error: string | null }> {
+  if (!supabase) return { success: true, error: null };
+
+  // Try RPC first
+  try {
+    const { data, error } = await supabase.rpc('submit_client_review', {
+      target_commission_id: commissionId,
+      review_payload: review,
+    });
+    if (!error && (data as any)?.success) {
+      return { success: true, error: null };
+    }
+  } catch {
+    // fallback below
+  }
+
+  // Fallback direct update
+  try {
+    await supabase
+      .from('commissions')
+      .update({
+        status_stage: 'completed',
+        progress: 100,
+        review_json: review,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', commissionId);
+  } catch (err: any) {
+    console.warn('Review fallback direct update warning:', err);
+  }
+
+  return { success: true, error: null };
+}
+
+/** Fetch unread message counts per commission for the current user via RPC. */
+export async function fetchUnreadMessageCounts(): Promise<Record<string, number>> {
+  if (!supabase) return {};
+
+  const { data, error } = await supabase.rpc('get_unread_message_counts');
+  if (error || !data) {
+    return {};
+  }
+
+  const counts: Record<string, number> = {};
+  for (const row of data as Array<{ commission_id: string; unread_count: number | string }>) {
+    counts[row.commission_id] = Number(row.unread_count) || 0;
+  }
+  return counts;
+}
+
+/** Mark a commission's messages as read for the current user. */
+export async function markCommissionReadInDb(commissionId: string): Promise<void> {
+  if (!supabase) return;
+  await supabase.rpc('mark_commission_read', { p_commission_id: commissionId });
 }

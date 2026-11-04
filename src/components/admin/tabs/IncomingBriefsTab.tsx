@@ -1,6 +1,7 @@
-import { CheckCircle2, XCircle, Clock, ExternalLink } from 'lucide-react';
+import { CheckCircle2, XCircle, Clock, ExternalLink, AlertTriangle } from 'lucide-react';
 import type { SubmittedOrder } from '@/types';
 import { getTier, formatUsd, ACCENT_CLASSES, TIER_ACCENT } from '@/lib/utils';
+import { getActiveCancellationRequest } from '@/lib/orderCancellation';
 
 interface IncomingBriefsTabProps {
   orders: SubmittedOrder[];
@@ -44,6 +45,7 @@ export function IncomingBriefsTab({
         {orders.map((order) => {
           const tier = getTier(order.tier);
           const accent = ACCENT_CLASSES[TIER_ACCENT[order.tier]];
+          const cancelReq = getActiveCancellationRequest(order);
 
           return (
             <div
@@ -61,6 +63,11 @@ export function IncomingBriefsTab({
                     <span className="rounded-full bg-mustard px-2 py-0.5 text-[10px] font-bold text-ink uppercase">
                       Pending Review
                     </span>
+                    {cancelReq.hasRequest && (
+                      <span className="inline-flex items-center gap-1 rounded-full bg-coral px-2.5 py-0.5 text-[10px] font-bold text-white uppercase">
+                        <AlertTriangle className="size-3" /> Cancellation Requested
+                      </span>
+                    )}
                   </div>
                   <div className="text-right">
                     <p className="font-display text-xl font-bold text-ink">
@@ -80,6 +87,16 @@ export function IncomingBriefsTab({
                     Client: <span className="font-semibold text-ink">{order.clientContact || 'Anonymous'}</span>
                   </p>
                 </div>
+
+                {cancelReq.hasRequest && (
+                  <div className="mt-3 rounded-2xl border border-coral/30 bg-coral-soft/80 p-3 text-xs text-coral">
+                    <p className="font-bold">Client Cancellation Request:</p>
+                    <p className="mt-0.5 text-ink italic">"{cancelReq.reason}"</p>
+                    <p className="mt-1 text-[11px] text-ink-mute">
+                      Declining this brief will acknowledge cancellation without deduction of slot or fees.
+                    </p>
+                  </div>
+                )}
 
                 <div className="mt-3 space-y-2 rounded-2xl border border-line/60 bg-canvas/70 p-3 text-xs text-ink">
                   <div>
@@ -113,24 +130,42 @@ export function IncomingBriefsTab({
                 </div>
 
                 {/* References */}
-                {order.references && order.references.length > 0 && (
-                  <div className="mt-3">
-                    <p className="text-[11px] font-semibold text-ink-mute">
-                      Attached References ({order.references.length}):
-                    </p>
-                    <div className="mt-1 flex flex-wrap gap-1.5">
+                {order.references && order.references.length > 0 ? (
+                  <div className="mt-3 space-y-1.5">
+                    <div className="flex items-center justify-between">
+                      <p className="text-[11px] font-semibold text-ink-mute">
+                        Attached Character References ({order.references.length}):
+                      </p>
+                      <span className="text-[10px] text-ink-mute">Click to preview full</span>
+                    </div>
+                    <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
                       {order.references.map((ref, idx) => (
                         <a
-                          key={idx}
+                          key={ref.id || idx}
                           href={ref.previewUrl}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="inline-flex items-center gap-1 rounded-full border border-line bg-canvas px-2.5 py-1 text-[11px] font-medium text-ink transition hover:border-ink"
+                          title={ref.name || `Reference #${idx + 1}`}
+                          className="group relative aspect-square overflow-hidden rounded-xl border border-line bg-paper shadow-2xs transition hover:border-ink"
                         >
-                          Ref #{idx + 1} <ExternalLink className="size-2.5 text-ink-mute" />
+                          <img
+                            src={ref.previewUrl}
+                            alt={ref.name || `Reference #${idx + 1}`}
+                            className="size-full object-cover transition group-hover:scale-105"
+                          />
+                          <span className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 transition group-hover:opacity-100">
+                            <ExternalLink className="size-4 text-white" />
+                          </span>
+                          <span className="absolute bottom-1 left-1 max-w-[calc(100%-8px)] truncate rounded bg-ink/80 px-1 py-0.5 text-[9px] font-medium text-white">
+                            {ref.name || `Ref #${idx + 1}`}
+                          </span>
                         </a>
                       ))}
                     </div>
+                  </div>
+                ) : (
+                  <div className="mt-3 flex items-center justify-between rounded-xl border border-line/60 bg-canvas/60 px-3 py-2 text-[11px] text-ink-mute">
+                    <span>No reference images attached to this brief.</span>
                   </div>
                 )}
               </div>

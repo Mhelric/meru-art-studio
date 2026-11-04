@@ -16,6 +16,7 @@ import { SectionHeading } from '@/components/ui/SectionHeading';
 import { Toast } from '@/components/ui/Toast';
 import { EASE } from '@/components/ui/Reveal';
 import { ErrorBoundary } from '@/components/ui/ErrorBoundary';
+import { cn } from '@/lib/utils';
 
 // Lazy-loaded heavy modules for code-splitting
 const AvailabilityCalendar = lazy(() =>
@@ -66,7 +67,7 @@ export default function App() {
         <NavBar />
         <SocialDock />
 
-        <main className="mx-auto max-w-6xl px-4 sm:pl-20 lg:px-8">
+        <main className={cn('mx-auto max-w-6xl px-4 lg:px-8', activeTab !== 'admin' && 'sm:pl-20')}>
           <AnimatePresence mode="wait">
             <motion.div
               key={activeTab}
@@ -85,7 +86,7 @@ export default function App() {
               )}
 
               {activeTab === 'rules' && (
-                <div className="pt-28 sm:pt-32">
+                <div className="pt-32 sm:pt-32">
                   <SectionHeading
                     eyebrow="Boundaries & Guidelines"
                     title="What I can & won’t draw"

@@ -1,4 +1,4 @@
-import type { SubmittedOrder } from '@/types';
+import type { SubmittedOrder, StudioPaymentDetails } from '@/types';
 import { formatMoney, formatShortDate, getTier } from '@/lib/utils';
 
 /**
@@ -14,12 +14,22 @@ export function escapeHtml(str: unknown): string {
     .replace(/'/g, '&#039;');
 }
 
+export interface PrintInvoiceOptions {
+  paymentDetails?: StudioPaymentDetails;
+  usdToPhpRate?: number;
+  paymentKind?: 'deposit' | 'final';
+  targetChannel?: 'paypal' | 'gcash' | 'bank' | 'all';
+}
+
 /**
  * Generates and triggers a printable invoice / commission receipt in a new browser window.
  * Uses high-contrast, professional typography, full financial breakdown, print styles,
- * and comprehensive HTML entity escaping to prevent DOM XSS vulnerabilities.
+ * payment gateway checkout links, QR codes, and comprehensive HTML entity escaping to prevent DOM XSS vulnerabilities.
  */
-export function printOrderInvoice(order: SubmittedOrder): void {
+export function printOrderInvoice(
+  order: SubmittedOrder,
+  options?: PrintInvoiceOptions,
+): void {
   const printWindow = window.open('', '_blank', 'width=800,height=900');
   if (!printWindow) {
     alert('Please allow popups for Meru Art Studio to download or print your invoice.');
@@ -28,7 +38,20 @@ export function printOrderInvoice(order: SubmittedOrder): void {
 
   const tier = getTier(order.tier);
   const rawOrderCode = order.orderCode || order.id.slice(0, 8).toUpperCase();
+  const cleanCode = rawOrderCode.replace(/^MRU-/, '');
   const orderCode = escapeHtml(rawOrderCode);
+  const paymentKind = options?.paymentKind ?? (order.depositPaid ? 'final' : 'deposit');
+  const invoiceNo = `INV-MRU-${cleanCode}-${paymentKind.toUpperCase()}`;
+  const usdToPhpRate = options?.usdToPhpRate ?? 58;
+
+  const activeAmountUsd =
+    paymentKind === 'final'
+      ? Math.max(0, order.totalUsd - order.depositUsd)
+      : order.paymentSplit === '100_upfront'
+        ? order.totalUsd
+        : order.depositUsd;
+  const activeAmountPhp = Math.round(activeAmountUsd * usdToPhpRate);
+
   const remainingUsd = Math.max(0, order.totalUsd - order.depositUsd);
   const activeAddons: string[] = [];
   if (order.addons.nsfw) activeAddons.push('NSFW Content (+50%)');
@@ -46,6 +69,23 @@ export function printOrderInvoice(order: SubmittedOrder): void {
   const safeTierDesc = escapeHtml(tier.description);
   const safeAddonsText = escapeHtml(activeAddons.join(', '));
   const safeDate = escapeHtml(formatShortDate(order.createdAt.slice(0, 10)));
+
+  const pDetails = options?.paymentDetails;
+  const paypalEmail = pDetails?.paypalEmail || 'mkun.arts@gmail.com';
+  const paypalMe = pDetails?.paypalMeUsername || 'mkunarts';
+  const gcashNum = pDetails?.gcashNumber || '09455121351';
+  const gcashName = pDetails?.gcashName || 'Mhelric Banaag';
+
+  const gcashQrData = `GCASH:${gcashNum} | Invoice: ${invoiceNo} | Payee: ${gcashName} | Amount: PHP ${activeAmountPhp} | Order: #${orderCode}`;
+  const gcashQrUrl =
+    pDetails?.gcashQrImageUrl ||
+    `https://api.qrserver.com/v1/create-qr-code/?size=260x260&margin=10&data=${encodeURIComponent(gcashQrData)}`;
+
+  const paypalCheckoutUrl = `https://www.paypal.com/cgi-bin/webscr?cmd=_xclick&business=${encodeURIComponent(
+    paypalEmail,
+  )}&item_name=${encodeURIComponent(
+    `Meru Art Studio - #${orderCode} (${tier.label} ${paymentKind === 'final' ? 'Final Balance' : 'Deposit'})`,
+  )}&amount=${activeAmountUsd.toFixed(2)}&currency_code=USD&no_shipping=1&invoice=${encodeURIComponent(invoiceNo)}`;
 
   const html = `<!DOCTYPE html>
 <html lang="en">
@@ -84,10 +124,22 @@ export function printOrderInvoice(order: SubmittedOrder): void {
       text-align: right;
     }
     .invoice-badge h1 {
-      font-size: 28px;
+      font-size: 26px;
       font-weight: 800;
       color: #e0604b;
       margin-bottom: 4px;
+    }
+    .invoice-badge .inv-no {
+      font-family: monospace;
+      font-size: 13px;
+      font-weight: 700;
+      color: #1a1614;
+      background: #faf8f5;
+      border: 1px solid #e8e3dc;
+      padding: 3px 8px;
+      border-radius: 6px;
+      display: inline-block;
+      margin-top: 2px;
     }
     .meta-grid {
       display: grid;
@@ -134,10 +186,10 @@ export function printOrderInvoice(order: SubmittedOrder): void {
     .totals-area {
       display: flex;
       justify-content: flex-end;
-      margin-bottom: 36px;
+      margin-bottom: 30px;
     }
     .totals-table {
-      width: 320px;
+      width: 340px;
     }
     .totals-table tr td {
       padding: 8px 10px;
@@ -159,18 +211,66 @@ export function printOrderInvoice(order: SubmittedOrder): void {
     }
     .status-paid { background: #e6f6f2; color: #1e7e68; }
     .status-pending { background: #fdf3e5; color: #b9800f; }
+    
+    .payment-box {
+      background: #faf8f5;
+      border: 1.5px solid #e8e3dc;
+      border-radius: 12px;
+      padding: 20px;
+      margin-bottom: 24px;
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 20px;
+      align-items: center;
+    }
+    .payment-box h3 {
+      font-size: 13px;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: #1a1614;
+      margin-bottom: 8px;
+    }
+    .payment-box p {
+      font-size: 13px;
+      color: #4a4542;
+      margin-bottom: 6px;
+    }
+    .payment-box strong { color: #1a1614; }
+    .qr-container {
+      text-align: center;
+      background: #ffffff;
+      padding: 10px;
+      border-radius: 10px;
+      border: 1px solid #e8e3dc;
+    }
+    .qr-container img {
+      width: 140px;
+      height: 140px;
+      object-fit: contain;
+      display: block;
+      margin-bottom: 4px;
+    }
+    .qr-container span {
+      font-size: 10px;
+      font-weight: 700;
+      color: #005ce6;
+      text-transform: uppercase;
+    }
+
     .terms-box {
       font-size: 11px;
       color: #8c827a;
       border-top: 1px solid #e8e3dc;
-      padding-top: 20px;
-      margin-top: 20px;
+      padding-top: 16px;
+      margin-top: 16px;
       line-height: 1.6;
     }
     .print-btn-bar {
       margin-bottom: 20px;
       display: flex;
       justify-content: flex-end;
+      gap: 10px;
     }
     .print-btn {
       background: #1a1614;
@@ -182,6 +282,16 @@ export function printOrderInvoice(order: SubmittedOrder): void {
       border-radius: 8px;
       cursor: pointer;
     }
+    .pay-btn-link {
+      background: #003087;
+      color: #ffffff;
+      text-decoration: none;
+      padding: 10px 20px;
+      font-size: 14px;
+      font-weight: 600;
+      border-radius: 8px;
+      display: inline-block;
+    }
     @media print {
       body { padding: 0; }
       .print-btn-bar { display: none !important; }
@@ -190,19 +300,22 @@ export function printOrderInvoice(order: SubmittedOrder): void {
 </head>
 <body>
   <div class="print-btn-bar">
+    <a href="${paypalCheckoutUrl}" target="_blank" rel="noopener noreferrer" class="pay-btn-link">
+      Pay with PayPal (${formatMoney(activeAmountUsd, 'USD')})
+    </a>
     <button class="print-btn" onclick="window.print()">Print or Save PDF</button>
   </div>
 
   <div class="header">
     <div>
       <div class="brand-title">MERU ART STUDIO</div>
-      <div class="brand-sub">Independent Character Illustrator & Digital Artist</div>
+      <div class="brand-sub">Independent Character Illustrator & Digital Artist · Mhelric Banaag</div>
       <div class="brand-sub">Manila, Philippines (UTC+8) · Commissions & Visual Production</div>
     </div>
     <div class="invoice-badge">
-      <h1>COMMISSION RECEIPT</h1>
-      <p style="font-size: 13px; font-weight: 600; color: #6a6460;">Ref: #${orderCode}</p>
-      <p style="font-size: 12px; color: #8c827a;">Date: ${safeDate}</p>
+      <h1>COMMISSION INVOICE</h1>
+      <div class="inv-no">${escapeHtml(invoiceNo)}</div>
+      <p style="font-size: 12px; color: #8c827a; margin-top: 4px;">Date: ${safeDate}</p>
     </div>
   </div>
 
@@ -215,7 +328,7 @@ export function printOrderInvoice(order: SubmittedOrder): void {
     </div>
     <div class="meta-col">
       <h3>Order Specifications</h3>
-      <p><strong>Stage:</strong> <span class="status-stamp ${order.stage === 'completed' ? 'status-paid' : 'status-pending'}">${safeStageLabel}</span></p>
+      <p><strong>Current Milestone:</strong> <span class="status-stamp ${order.stage === 'completed' ? 'status-paid' : 'status-pending'}">${safeStageLabel}</span></p>
       <p><strong>Target Delivery:</strong> ${safeTargetDelivery}</p>
       <p><strong>Payment Structure:</strong> ${order.paymentSplit === '100_upfront' ? '100% Upfront' : '50% Deposit / 50% Post-Sketch'}</p>
     </div>
@@ -285,18 +398,36 @@ export function printOrderInvoice(order: SubmittedOrder): void {
           : ''
       }
       <tr class="grand-total">
-        <td>Total Paid:</td>
-        <td class="text-right">
-          ${
-            order.finalPaid
-              ? formatMoney(order.totalUsd, order.currency)
-              : order.depositPaid
-                ? formatMoney(order.depositUsd, order.currency)
-                : formatMoney(0, order.currency)
-          }
+        <td>Amount Due Now:</td>
+        <td class="text-right" style="color: #e0604b;">
+          ${formatMoney(activeAmountUsd, 'USD')}
+          <span style="font-size: 13px; font-weight: 500; color: #6a6460; display: block;">
+            ≈ ₱${activeAmountPhp.toLocaleString()} PHP
+          </span>
         </td>
       </tr>
     </table>
+  </div>
+
+  <div class="payment-box">
+    <div>
+      <h3>Official Studio Payment Instructions</h3>
+      <p><strong>PayPal (1-Click Invoice Checkout):</strong> ${escapeHtml(paypalEmail)}<br />
+        <span style="font-size: 12px; color: #6a6460;">Direct Link: <a href="https://paypal.me/${escapeHtml(paypalMe)}/${activeAmountUsd}USD" target="_blank" style="color: #003087;">paypal.me/${escapeHtml(paypalMe)}/${activeAmountUsd}USD</a></span>
+      </p>
+      <p style="margin-top: 8px;"><strong>GCash Express Send / QR Ph:</strong> <strong>${escapeHtml(gcashNum)}</strong> (${escapeHtml(gcashName)})<br />
+        <span style="font-size: 12px; color: #6a6460;">Exact Amount: <strong>₱${activeAmountPhp.toLocaleString()} PHP</strong> · Memo: <strong>#${orderCode}</strong></span>
+      </p>
+      ${
+        pDetails?.bankAccountNumber
+          ? `<p style="margin-top: 8px;"><strong>Bank Transfer / Maya:</strong> ${escapeHtml(pDetails.bankName)} · Acct: <strong>${escapeHtml(pDetails.bankAccountNumber)}</strong> (${escapeHtml(pDetails.bankAccountName)})</p>`
+          : ''
+      }
+    </div>
+    <div class="qr-container">
+      <img src="${gcashQrUrl}" alt="GCash QR Code" />
+      <span>Scan with GCash</span>
+    </div>
   </div>
 
   <div class="terms-box">
@@ -308,9 +439,8 @@ export function printOrderInvoice(order: SubmittedOrder): void {
   </div>
 
   <script>
-    // Automatically open the print dialog when opened
     window.addEventListener('load', () => {
-      setTimeout(() => { window.print(); }, 400);
+      // Auto-focus print dialog unless opened to click pay
     });
   </script>
 </body>

@@ -16,6 +16,8 @@ import {
   submitPaymentReceiptInDb,
   updateCommissionBriefInDb,
   requestCommissionCancellationInDb,
+  fetchUnreadMessageCounts,
+  markCommissionReadInDb,
   type StudioSettingsRow,
 } from '@/lib/supabase';
 
@@ -25,13 +27,16 @@ export const QUERY_KEYS = {
   myCommissions: (userId?: string) => ['commissions', 'mine', userId] as const,
   adminCommissions: ['commissions', 'admin'] as const,
   payments: (commissionId?: string) => ['payments', commissionId] as const,
+  unreadMessageCounts: ['unreadMessageCounts'] as const,
 };
 
 export function usePublicStudioDataQuery() {
   return useQuery({
     queryKey: QUERY_KEYS.publicStudioData,
     queryFn: fetchPublicStudioData,
-    staleTime: 1000 * 60, // 1 minute
+    staleTime: 1000 * 30, // 30 seconds
+    refetchInterval: 1000 * 30, // 30s background refetch
+    refetchOnWindowFocus: true,
   });
 }
 
@@ -295,6 +300,45 @@ export function useRequestCancellationMutation() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.commissions });
+    },
+  });
+}
+
+export function useUnreadMessageCountsQuery(user: User | null) {
+  return useQuery({
+    queryKey: QUERY_KEYS.unreadMessageCounts,
+    queryFn: fetchUnreadMessageCounts,
+    enabled: Boolean(user),
+    staleTime: 1000 * 15,
+    refetchInterval: 1000 * 30,
+  });
+}
+
+export function useMarkCommissionReadMutation() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (commissionId: string) => {
+      return markCommissionReadInDb(commissionId);
+    },
+    onMutate: async (commissionId: string) => {
+      await queryClient.cancelQueries({ queryKey: QUERY_KEYS.unreadMessageCounts });
+      const previousCounts = queryClient.getQueryData<Record<string, number>>(QUERY_KEYS.unreadMessageCounts);
+      if (previousCounts) {
+        queryClient.setQueryData<Record<string, number>>(QUERY_KEYS.unreadMessageCounts, {
+          ...previousCounts,
+          [commissionId]: 0,
+        });
+      }
+      return { previousCounts };
+    },
+    onError: (_err, _commissionId, context) => {
+      if (context?.previousCounts) {
+        queryClient.setQueryData(QUERY_KEYS.unreadMessageCounts, context.previousCounts);
+      }
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.unreadMessageCounts });
     },
   });
 }

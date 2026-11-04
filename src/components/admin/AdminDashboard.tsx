@@ -1,12 +1,9 @@
 import { useState, useRef, useEffect } from 'react';
-import { Eye, RotateCcw, Sliders } from 'lucide-react';
 import { useStudio } from '@/context/StudioContext';
-import { SectionHeading } from '@/components/ui/SectionHeading';
-import { Reveal } from '@/components/ui/Reveal';
 import { useAdminRealtime } from '@/lib/realtime';
-import { cn } from '@/lib/utils';
 import { AdminNav, type AdminSubTab } from './AdminNav';
 import { useSegmentedAdminOrders } from './useSegmentedAdminOrders';
+import { InboxTab } from './tabs/InboxTab';
 import { PipelineTab } from './tabs/PipelineTab';
 import { IncomingBriefsTab } from './tabs/IncomingBriefsTab';
 import { PaymentsTab } from './tabs/PaymentsTab';
@@ -27,10 +24,8 @@ export function AdminDashboard() {
     cancelOrder,
     deleteOrder,
     toggleOrderPaymentFlag,
-    resetStudioSettings,
-    devAdminPreview,
-    setDevAdminPreview,
     isArtistAdmin,
+    totalUnreadCount,
     user,
     showToast,
   } = useStudio();
@@ -43,8 +38,30 @@ export function AdminDashboard() {
 
   // Default to Incoming Briefs if there are any new briefs to review, otherwise Pipeline
   const [activeSubTab, setActiveSubTab] = useState<AdminSubTab>(() => {
+    try {
+      const stored = sessionStorage.getItem('meru_admin_target_subtab') as AdminSubTab | null;
+      if (stored && ['pipeline', 'briefs', 'payments', 'archive', 'inbox', 'settings'].includes(stored)) {
+        sessionStorage.removeItem('meru_admin_target_subtab');
+        return stored;
+      }
+    } catch {
+      // ignore
+    }
     return segmented.counts.briefs > 0 ? 'briefs' : 'pipeline';
   });
+
+  // Listen for direct subtab switch requests (e.g., from NotificationBell)
+  useEffect(() => {
+    const handleSwitch = (e: Event) => {
+      const detail = (e as CustomEvent<AdminSubTab>).detail;
+      if (detail && ['pipeline', 'briefs', 'payments', 'archive', 'inbox', 'settings'].includes(detail)) {
+        userInteractedRef.current = true;
+        setActiveSubTab(detail);
+      }
+    };
+    window.addEventListener('meru_switch_admin_subtab', handleSwitch);
+    return () => window.removeEventListener('meru_switch_admin_subtab', handleSwitch);
+  }, []);
 
   // Safe initial navigation: waits for async orders to load, then auto-selects briefs if new briefs exist
   // and the artist has not manually clicked a tab.
@@ -105,118 +122,114 @@ export function AdminDashboard() {
     }
   };
 
+  const navCounts = {
+    unreadMessages: totalUnreadCount,
+    briefs: segmented.counts.briefs,
+    active: segmented.counts.active,
+    payments: segmented.counts.payments,
+    archived: segmented.counts.archived,
+  };
+
   return (
-    <section className="pt-28 pb-14 sm:pt-32">
-      {/* Top Dev Mode Showcase Banner */}
-      <Reveal className="mb-6 flex flex-col justify-between gap-3 rounded-3xl border border-ink/20 bg-cream/80 p-4 sm:flex-row sm:items-center sm:px-6">
-        <div className="flex items-start gap-3">
-          <span className="grid size-10 shrink-0 place-items-center rounded-2xl bg-ink text-mustard">
-            <Sliders className="size-5" />
-          </span>
-          <div>
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="text-[11px] font-semibold tracking-wider text-coral uppercase">
-                Artist Admin & Backoffice
-              </span>
-              <span className="rounded-full bg-teal-soft px-2 py-0.5 text-[10px] font-semibold text-teal">
-                RLS Protected (`is_artist_admin()`)
-              </span>
-            </div>
-            <p className="mt-0.5 text-xs text-ink-soft">
-              Changes made here update the public storefront, calculator, availability calendar, and client order tracker in real time.
-            </p>
-          </div>
+    <section className="pt-24 pb-20 sm:pt-32 lg:pb-14">
+      {/* Header Overview */}
+      <div className="mb-6">
+        <p className="eyebrow text-coral mb-1 text-[11px] sm:text-xs">Studio Backoffice</p>
+        <h1 className="font-display text-2xl font-semibold tracking-tight text-ink sm:text-[36px] sm:leading-[1.1]">
+          Artist Admin Dashboard
+        </h1>
+        <p className="mt-1 text-xs sm:text-sm text-ink-soft max-w-2xl leading-relaxed">
+          Manage commission pipeline, incoming client briefs, payment verification gates, live storefront rates, and order archiving.
+        </p>
+      </div>
+
+      {/* Main Responsive Grid Layout */}
+      <div className="lg:grid lg:grid-cols-[200px_1fr] lg:gap-8 xl:grid-cols-[220px_1fr] items-start w-full min-w-0">
+        {/* Desktop Left Sticky Sidebar */}
+        <aside className="hidden lg:block lg:sticky lg:top-28">
+          <AdminNav
+            mode="sidebar"
+            activeSubTab={activeSubTab}
+            onChangeSubTab={handleSubTabChange}
+            counts={navCounts}
+          />
+        </aside>
+
+        {/* Mobile Fixed Bottom Bar */}
+        <div className="lg:hidden">
+          <AdminNav
+            mode="bottom-bar"
+            activeSubTab={activeSubTab}
+            onChangeSubTab={handleSubTabChange}
+            counts={navCounts}
+          />
         </div>
 
-        <div className="flex items-center gap-2">
-          {import.meta.env.DEV && (
-            <button
-              type="button"
-              onClick={() => setDevAdminPreview(!devAdminPreview)}
-              className={cn(
-                'inline-flex items-center gap-1.5 rounded-full px-3.5 py-2 text-xs font-semibold transition-colors',
-                devAdminPreview ? 'bg-ink text-white' : 'border border-line bg-paper text-ink-soft',
-              )}
-            >
-              <Eye className="size-3.5 text-mustard" />
-              Dev Preview: {devAdminPreview ? 'ON' : 'OFF'}
-            </button>
-          )}
-          <button
-            type="button"
-            onClick={resetStudioSettings}
-            title="Reset all prices, multipliers & blocked dates to defaults"
-            className="inline-flex items-center gap-1 rounded-full border border-line bg-paper px-3 py-2 text-xs font-semibold text-ink-soft transition hover:border-ink hover:text-ink"
+        {/* Active Tab Panel (WCAG tabpanel) */}
+        <main className="min-w-0 flex-1 w-full">
+          <div
+            role="tabpanel"
+            id={`admin-panel-${activeSubTab}`}
+            aria-labelledby={`admin-tab-sidebar-${activeSubTab}`}
+            tabIndex={0}
+            className="focus:outline-none"
           >
-            <RotateCcw className="size-3.5" /> Reset
-          </button>
-        </div>
-      </Reveal>
+            {activeSubTab === 'inbox' && (
+              <InboxTab
+                orders={submittedOrders}
+                activeOrderId={activeOrderId}
+                setActiveOrderId={setActiveOrderId}
+                onOpenPipeline={(orderId) => {
+                  setActiveOrderId(orderId);
+                  setActiveSubTab('pipeline');
+                }}
+                onOpenArchive={(orderId) => {
+                  setActiveOrderId(orderId);
+                  setActiveSubTab('archive');
+                }}
+              />
+            )}
 
-      <SectionHeading
-        eyebrow="Studio Backoffice"
-        title="Artist Admin Dashboard"
-        subtitle="Manage commission pipeline, incoming client briefs, payment verification gates, live storefront rates, and order archiving."
-      />
+            {activeSubTab === 'pipeline' && (
+              <PipelineTab
+                orders={segmented.activePipeline}
+                activeOrderId={activeOrderId}
+                setActiveOrderId={setActiveOrderId}
+                onOpenCancelModal={(order) => {
+                  setReasonModalMode('cancel');
+                  setOrderToDeclineOrCancel(order);
+                }}
+              />
+            )}
 
-      {/* Sub-Navigation Tabs */}
-      <AdminNav
-        activeSubTab={activeSubTab}
-        onChangeSubTab={handleSubTabChange}
-        counts={{
-          briefs: segmented.counts.briefs,
-          active: segmented.counts.active,
-          payments: segmented.counts.payments,
-          archived: segmented.counts.archived,
-        }}
-      />
+            {activeSubTab === 'briefs' && (
+              <IncomingBriefsTab
+                orders={segmented.incomingBriefs}
+                onAcceptBrief={handleAcceptBrief}
+                onOpenDeclineModal={(order) => {
+                  setReasonModalMode('decline');
+                  setOrderToDeclineOrCancel(order);
+                }}
+              />
+            )}
 
-      {/* Active Tab Panel (WCAG tabpanel) */}
-      <div
-        role="tabpanel"
-        id={`admin-panel-${activeSubTab}`}
-        aria-labelledby={`admin-tab-${activeSubTab}`}
-        tabIndex={0}
-        className="focus:outline-none"
-      >
-        {activeSubTab === 'pipeline' && (
-          <PipelineTab
-            orders={segmented.activePipeline}
-            activeOrderId={activeOrderId}
-            setActiveOrderId={setActiveOrderId}
-            onOpenCancelModal={(order) => {
-              setReasonModalMode('cancel');
-              setOrderToDeclineOrCancel(order);
-            }}
-          />
-        )}
+            {activeSubTab === 'payments' && (
+              <PaymentsTab
+                orders={segmented.pendingPayments}
+                onTogglePaymentFlag={toggleOrderPaymentFlag}
+              />
+            )}
 
-        {activeSubTab === 'briefs' && (
-          <IncomingBriefsTab
-            orders={segmented.incomingBriefs}
-            onAcceptBrief={handleAcceptBrief}
-            onOpenDeclineModal={(order) => {
-              setReasonModalMode('decline');
-              setOrderToDeclineOrCancel(order);
-            }}
-          />
-        )}
+            {activeSubTab === 'settings' && <StudioSettingsTab />}
 
-        {activeSubTab === 'payments' && (
-          <PaymentsTab
-            orders={segmented.pendingPayments}
-            onTogglePaymentFlag={toggleOrderPaymentFlag}
-          />
-        )}
-
-        {activeSubTab === 'settings' && <StudioSettingsTab />}
-
-        {activeSubTab === 'archive' && (
-          <ArchiveTab
-            orders={segmented.archivedOrders}
-            onOpenDeleteDialog={(order) => setOrderToDelete(order)}
-          />
-        )}
+            {activeSubTab === 'archive' && (
+              <ArchiveTab
+                orders={segmented.archivedOrders}
+                onOpenDeleteDialog={(order) => setOrderToDelete(order)}
+              />
+            )}
+          </div>
+        </main>
       </div>
 
       {/* Decline & Cancel Reason Modal */}

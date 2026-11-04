@@ -9,7 +9,7 @@ export function Footer() {
 
   return (
     <>
-      <footer className="mt-28 border-t border-line bg-cream/50 px-4 pt-12 pb-28 sm:pb-12">
+      <footer className="mt-6 sm:mt-28 border-t border-line bg-cream/50 px-4 pt-6 sm:pt-12 pb-16 sm:pb-12">
         <div className="mx-auto flex max-w-6xl flex-col items-center justify-between gap-6 sm:flex-row">
           <div className="flex items-center gap-3">
             <img src="/brand/mark-192.png" alt="" className="size-10 rounded-2xl border border-line object-cover" />
@@ -21,16 +21,17 @@ export function Footer() {
             </div>
           </div>
 
-          <div className="flex items-center gap-3">
-            <button
-              type="button"
-              onClick={() => setPrivacyOpen(true)}
-              className="inline-flex items-center gap-1.5 rounded-full border border-line bg-paper px-3.5 py-1.5 text-xs font-medium text-ink transition hover:border-ink/40 hover:bg-cream"
+          <div className="flex flex-col items-center gap-4 sm:flex-row sm:gap-3">
+            <a
+              href="/privacy.html"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1.5 rounded-full border border-line bg-paper px-4 py-2 text-xs font-medium text-ink transition hover:border-ink/40 hover:bg-cream cursor-pointer"
             >
               <ShieldCheck className="size-3.5 text-teal" /> Privacy Policy
-            </button>
+            </a>
 
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center justify-center gap-2">
               {SOCIALS.filter((s) => s.id !== 'discord').map((s) => (
                 <a
                   key={s.id}
@@ -38,7 +39,7 @@ export function Footer() {
                   target="_blank"
                   rel="noopener noreferrer"
                   aria-label={s.label}
-                  className="grid size-9 place-items-center rounded-full border border-line bg-paper text-ink-soft transition hover:border-ink/30 hover:text-ink"
+                  className="grid size-9 place-items-center rounded-full border border-line bg-paper text-ink-soft shadow-2xs transition hover:border-ink/30 hover:text-ink hover:scale-105"
                 >
                   <BrandIcon id={s.id} className="size-4" />
                 </a>

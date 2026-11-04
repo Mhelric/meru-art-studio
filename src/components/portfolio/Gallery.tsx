@@ -30,7 +30,7 @@ export function Gallery() {
   }, []);
 
   return (
-    <section id="gallery" className="scroll-mt-28 pt-4 sm:pt-6">
+    <section id="gallery" className="pt-6 sm:pt-10">
       <div className="flex flex-col justify-between gap-4 md:flex-row md:items-end md:gap-6">
         <SectionHeading
           eyebrow="Selected Works"

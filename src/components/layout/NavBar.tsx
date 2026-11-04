@@ -4,6 +4,10 @@ import { useState } from 'react';
 import { useStudio } from '@/context/StudioContext';
 import { cn } from '@/lib/utils';
 import { EASE } from '@/components/ui/Reveal';
+import { StudioStatusBadge } from '@/components/ui/StudioStatusBadge';
+import { StatusMarqueeBanner } from '@/components/layout/StatusMarqueeBanner';
+import { NotificationBell } from '@/components/layout/NotificationBell';
+import { scrollToTarget } from '@/lib/smoothScroll';
 import type { TabId } from '@/types';
 
 const NAV: { id: TabId; label: string; short: string }[] = [
@@ -42,6 +46,14 @@ export function NavBar() {
     null;
   const userAvatar = (user?.user_metadata?.avatar_url as string | undefined) || null;
 
+  const handleNavSelect = (id: TabId) => {
+    if (id === 'portfolio' && activeTab === 'portfolio') {
+      scrollToTarget('#gallery', 0);
+      return;
+    }
+    setActiveTab(id);
+  };
+
   return (
     <motion.header
       animate={{ y: hidden ? '-110%' : 0 }}
@@ -52,7 +64,7 @@ export function NavBar() {
       )}
     >
       <div className="mx-auto flex max-w-7xl items-center justify-between gap-2 px-3.5 py-2.5 sm:px-8 sm:py-3">
-        <button onClick={() => setActiveTab('portfolio')} aria-label="Meru Art home" className="shrink-0">
+        <button onClick={() => { setActiveTab('portfolio'); window.scrollTo({ top: 0, behavior: 'smooth' }); }} aria-label="Meru Art home" className="shrink-0">
           <img
             src="/brand/logo-sm.webp"
             alt="Meru Art"
@@ -62,7 +74,7 @@ export function NavBar() {
 
         {/* Desktop pill nav */}
         <nav aria-label="Primary" className="hidden rounded-full border border-line bg-paper/90 p-1 backdrop-blur md:flex">
-          <NavItems items={navItems} activeTab={activeTab} onSelect={setActiveTab} />
+          <NavItems items={navItems} activeTab={activeTab} onSelect={handleNavSelect} />
         </nav>
 
         <div className="flex shrink-0 items-center gap-2">
@@ -109,6 +121,13 @@ export function NavBar() {
             </button>
           )}
 
+          {/* Activity Feed Notification Bell */}
+          <NotificationBell />
+
+          <div className="hidden sm:inline-flex">
+            <StudioStatusBadge size="sm" />
+          </div>
+
           <button
             onClick={() => openDrawer()}
             className="group inline-flex shrink-0 items-center gap-1 rounded-full bg-ink px-3.5 py-2 text-xs font-medium text-white transition-colors hover:bg-coral sm:gap-1.5 sm:px-5 sm:py-2.5 sm:text-sm"
@@ -124,8 +143,11 @@ export function NavBar() {
         aria-label="Primary mobile"
         className="mx-3.5 mb-2 flex justify-center rounded-full border border-line bg-paper/95 p-1 backdrop-blur md:hidden"
       >
-        <NavItems items={navItems} activeTab={activeTab} onSelect={setActiveTab} compact />
+        <NavItems items={navItems} activeTab={activeTab} onSelect={handleNavSelect} compact />
       </nav>
+
+      {/* Live Status Marquee Ribbon on Landing Page */}
+      {activeTab === 'portfolio' && <StatusMarqueeBanner />}
     </motion.header>
   );
 }

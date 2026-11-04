@@ -106,24 +106,29 @@ begin
 
   -- 1. Reference paths from commissions.reference_urls (bucket: commission-references)
   -- Strips tokens (?token=...) and domain prefixes; excludes external URLs (http% without bucket) and blob: URLs
-  select coalesce(jsonb_agg(
-    case
-      when (elem->>'storagePath') ~ 'commission-references/' then
-        split_part(regexp_replace(elem->>'storagePath', '^.*?commission-references/', ''), '?', 1)
-      when (elem->>'storagePath') not like 'http%' and (elem->>'storagePath') not like 'blob:%' then
-        split_part(elem->>'storagePath', '?', 1)
-      else null
-    end
-  ) filter (
-    where elem->>'storagePath' is not null
-      and (
-        (elem->>'storagePath') ~ 'commission-references/'
-        or ((elem->>'storagePath') not like 'http%' and (elem->>'storagePath') not like 'blob:%')
+  select coalesce(
+    (
+      select jsonb_agg(
+        case
+          when ref_path ~ 'commission-references/' then
+            split_part(regexp_replace(ref_path, '^.*?commission-references/', ''), '?', 1)
+          when ref_path not like 'http%' and ref_path not like 'blob:%' then
+            split_part(ref_path, '?', 1)
+          else null
+        end
+      ) filter (
+        where ref_path is not null
+          and (
+            ref_path ~ 'commission-references/'
+            or (ref_path not like 'http%' and ref_path not like 'blob:%')
+          )
       )
-  ), '[]'::jsonb)
+      from unnest(c.reference_urls) as ref_path
+    ),
+    '[]'::jsonb
+  )
   into v_refs
-  from public.commissions c,
-       jsonb_array_elements(coalesce(c.reference_urls, '[]'::jsonb)) as elem
+  from public.commissions c
   where c.id = p_commission_id;
 
   -- 2. WIP preview & master paths (bucket: commission-wips)
@@ -182,6 +187,13 @@ begin
   into v_chat_refs
   from public.messages
   where commission_id = p_commission_id;
+
+  v_refs := coalesce(v_refs, '[]'::jsonb);
+  v_wip_previews := coalesce(v_wip_previews, '[]'::jsonb);
+  v_wip_masters := coalesce(v_wip_masters, '[]'::jsonb);
+  v_receipts := coalesce(v_receipts, '[]'::jsonb);
+  v_chat_refs := coalesce(v_chat_refs, '[]'::jsonb);
+  v_chat_receipts := coalesce(v_chat_receipts, '[]'::jsonb);
 
   return jsonb_build_object(
     'references', v_refs || v_chat_refs,

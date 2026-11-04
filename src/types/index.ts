@@ -8,6 +8,18 @@ export type TabId = 'portfolio' | 'rules' | 'schedule' | 'track' | 'admin';
 
 export type AvailabilityStatus = 'open' | 'waitlist' | 'closed';
 
+export interface StudioPaymentDetails {
+  paypalEmail: string;
+  paypalMeUsername: string;
+  gcashNumber: string;
+  gcashName: string;
+  gcashQrImageUrl?: string;
+  bankName: string;
+  bankAccountNumber: string;
+  bankAccountName: string;
+  instructionsNote?: string;
+}
+
 export interface StudioSettingsState {
   status: AvailabilityStatus;
   maxSlots: number;
@@ -19,6 +31,7 @@ export interface StudioSettingsState {
     commercial: number;
   };
   blockedRanges: BlockedRange[];
+  paymentDetails?: StudioPaymentDetails;
 }
 
 export type Accent = 'coral' | 'mustard' | 'lilac' | 'teal' | 'peach';
@@ -111,6 +124,7 @@ export interface ReferenceFile {
   name: string;
   sizeBytes: number;
   previewUrl: string;
+  file?: File;
 }
 
 export interface OrderDraft {
@@ -139,7 +153,7 @@ export type AttachmentKind = 'receipt' | 'redline' | 'reference' | 'other';
 export interface OrderMessage {
   id: string;
   commissionId: string;
-  senderRole: 'client' | 'artist';
+  senderRole: 'client' | 'artist' | 'system';
   senderName: string;
   body: string;
   attachmentUrl?: string;
@@ -160,6 +174,19 @@ export interface WipUploadItem {
   artistNote: string;
   approvedByClient: boolean;
   createdAt: string;
+  revisionRequested?: boolean;
+  revisionNotes?: string;
+  revisionCategory?: string;
+  revisionScale?: 'minor' | 'major';
+  revisionRequestedAt?: string;
+}
+
+export interface ClientReview {
+  rating: number; // 1 to 5
+  comment: string;
+  visibility: 'public' | 'anonymous' | 'private';
+  clientName?: string;
+  createdAt: string;
 }
 
 export interface SubmittedOrder extends OrderDraft {
@@ -179,6 +206,17 @@ export interface SubmittedOrder extends OrderDraft {
   authMethod: 'demo' | 'discord' | 'google';
   wips: WipUploadItem[];
   messages: OrderMessage[];
+  payments?: PaymentRecord[];
+  events?: CommissionEvent[];
+  revisionCount?: number;
+  maxRevisions?: number;
+  sketchSignedOffAt?: string | null;
+  sketchSignoffChecklist?: {
+    poseAndComposition: boolean;
+    characterAndDetails: boolean;
+    termsAcknowledged: boolean;
+  };
+  review?: ClientReview;
 }
 
 export interface PaymentRecord {
@@ -204,4 +242,30 @@ export interface CommissionEvent {
   actorRole: 'artist' | 'client' | 'system';
   note: string;
   createdAt: string;
+}
+
+export type NotificationType =
+  | 'brief_submitted'
+  | 'brief_accepted'
+  | 'stage_updated'
+  | 'wip_posted'
+  | 'payment_verified'
+  | 'payment_submitted'
+  | 'revision_requested'
+  | 'cancellation_requested'
+  | 'cancellation_confirmed'
+  | 'cancellation_declined'
+  | 'message_received';
+
+export interface StudioNotification {
+  id: string;
+  orderId?: string;
+  orderCode?: string;
+  type: NotificationType;
+  title: string;
+  description: string;
+  targetTab: TabId;
+  targetSubTab?: 'pipeline' | 'briefs' | 'payments' | 'archive' | 'inbox';
+  createdAt: string;
+  isRead: boolean;
 }

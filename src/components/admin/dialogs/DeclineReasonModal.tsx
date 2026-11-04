@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, XCircle, AlertTriangle } from 'lucide-react';
+import { X, XCircle, AlertTriangle, Clock } from 'lucide-react';
 import type { SubmittedOrder } from '@/types';
-import { getTier } from '@/lib/utils';
+import { getTier, formatMoney } from '@/lib/utils';
+import { getActiveCancellationRequest, getRefundTierInfo } from '@/lib/orderCancellation';
 
 interface DeclineReasonModalProps {
   order: SubmittedOrder | null;
@@ -140,16 +141,56 @@ export function DeclineReasonModal({
               </button>
             </div>
 
-            <div className="mt-4 rounded-2xl border border-coral/30 bg-coral-soft/40 p-3 text-xs text-ink-soft">
-              <div className="flex items-start gap-2">
-                <AlertTriangle className="size-4 shrink-0 text-coral" />
-                <p>
-                  {mode === 'cancel'
-                    ? 'Cancelling this commission will move the order into the Archive and release any scheduled calendar slot. The client will be notified in chat.'
-                    : 'Declining this brief will move the order into the Archive and release any temporary slot lock. The client will be able to see the status when tracking.'}
-                </p>
-              </div>
-            </div>
+            {(() => {
+              const cancelReq = order ? getActiveCancellationRequest(order) : null;
+              const refundDetails = order
+                ? getRefundTierInfo(
+                    order.stage,
+                    order.totalUsd,
+                    order.depositUsd,
+                    order.depositPaid,
+                    order.finalPaid,
+                  )
+                : null;
+
+              return (
+                <>
+                  {mode === 'cancel' && cancelReq?.hasRequest && refundDetails && (
+                    <div className="mt-4 rounded-2xl border border-coral/30 bg-coral-soft/60 p-3.5 text-xs text-ink space-y-2">
+                      <div className="flex items-center gap-1.5 font-bold text-coral">
+                        <AlertTriangle className="size-4" /> Client Submitted Cancellation Request
+                      </div>
+                      <p className="italic text-ink-soft">"{cancelReq.reason}"</p>
+                      <div className="grid grid-cols-2 gap-2 rounded-xl bg-paper p-2.5 text-[11px] border border-line">
+                        <div>
+                          <span className="text-ink-mute">Refund Tier:</span>
+                          <p className="font-semibold text-ink">{refundDetails.tierName} ({refundDetails.percentage})</p>
+                        </div>
+                        <div>
+                          <span className="text-ink-mute">Eligible Refund:</span>
+                          <p className="font-semibold text-coral">{formatMoney(refundDetails.refundAmount, order.currency)}</p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-1.5 text-[11px] text-ink-mute">
+                        <Clock className="size-3 text-coral" />
+                        <span>Timeline: Process refund via PayPal/GCash within <strong>3–5 business days</strong>.</span>
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="mt-4 rounded-2xl border border-coral/30 bg-coral-soft/40 p-3 text-xs text-ink-soft">
+                    <div className="flex items-start gap-2">
+                      <AlertTriangle className="size-4 shrink-0 text-coral" />
+                      <p>
+                        {mode === 'cancel'
+                          ? 'Cancelling this commission will move the order into the Archive and release any scheduled calendar slot. The client will be notified with your confirmation notice.'
+                          : 'Declining this brief will move the order into the Archive and release any temporary slot lock. The client will be able to see the status when tracking.'}
+                      </p>
+                    </div>
+                  </div>
+                </>
+              );
+            })()}
 
             <form onSubmit={handleSubmit} className="mt-4 space-y-4">
               <div>

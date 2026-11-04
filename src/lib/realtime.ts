@@ -48,7 +48,7 @@ export function useCommissionRealtime(
           // Notify client if message was sent by the artist
           if (newMsg.sender_role === 'artist' && newMsg.sender_id !== currentUserId) {
             playNotificationSound('message');
-            showToastRef.current(`🎨 Meru Art: "${newMsg.body.slice(0, 60)}${newMsg.body.length > 60 ? '...' : ''}"`);
+            showToastRef.current(`Meru Art: "${newMsg.body.slice(0, 60)}${newMsg.body.length > 60 ? '...' : ''}"`);
             showSystemNotification('New Message from Meru Art', {
               body: newMsg.body,
               tag: `msg-${newMsg.id}`,
@@ -76,7 +76,7 @@ export function useCommissionRealtime(
           if (oldRow && oldRow.status_stage !== newRow.status_stage) {
             playNotificationSound('stage');
             const stageLabel = (newRow.status_stage as CommissionStage).replace('_', ' ').toUpperCase();
-            showToastRef.current(`🚀 Order status updated: ${stageLabel}`);
+            showToastRef.current(`Order status updated: ${stageLabel}`);
             showSystemNotification('Commission Stage Updated', {
               body: `Your commission is now in ${stageLabel}. Check your order tracker!`,
               tag: `stage-${newRow.id}`,
@@ -86,12 +86,12 @@ export function useCommissionRealtime(
 
           if (newRow.deposit_paid && (!oldRow || !oldRow.deposit_paid)) {
             playNotificationSound('success');
-            showToastRef.current('💰 Upfront deposit verified! Sketching is underway.');
+            showToastRef.current('Upfront deposit verified! Sketching is underway.');
           }
 
           if (newRow.final_paid && (!oldRow || !oldRow.final_paid)) {
             playNotificationSound('success');
-            showToastRef.current('✨ Final payment verified! High-res master deliverable unlocked.');
+            showToastRef.current('Final payment verified! High-res master deliverable unlocked.');
           }
         },
       )
@@ -108,7 +108,7 @@ export function useCommissionRealtime(
           const newWip = payload.new;
           queryClient.invalidateQueries({ queryKey: QUERY_KEYS.commissions });
           playNotificationSound('stage');
-          showToastRef.current(`🎨 Meru uploaded new artwork: "${newWip.title}"`);
+          showToastRef.current(`Meru uploaded new artwork: "${newWip.title}"`);
           showSystemNotification('New Artwork WIP Posted!', {
             body: `Meru posted "${newWip.title}". Check your tracker!`,
             tag: `wip-${newWip.id}`,
@@ -179,12 +179,25 @@ export function useAdminRealtime(isArtistAdmin: boolean, currentUserId: string |
           queryClient.invalidateQueries({ queryKey: QUERY_KEYS.adminCommissions });
           queryClient.invalidateQueries({ queryKey: QUERY_KEYS.publicStudioData });
           playNotificationSound('stage');
-          showToastRef.current(`🔔 New Commission Brief submitted by @${newOrder.client_handle || 'client'}!`);
+          showToastRef.current(`New Commission Brief submitted by @${newOrder.client_handle || 'client'}!`);
           showSystemNotification('New Commission Brief Received!', {
             body: `@${newOrder.client_handle} requested a ${newOrder.tier} commission.`,
             tag: `new-brief-${newOrder.id}`,
             targetHash: '#admin',
           });
+        },
+      )
+      // 1B. Commission updates (stage, pricing, or media changes)
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'commissions',
+        },
+        () => {
+          queryClient.invalidateQueries({ queryKey: QUERY_KEYS.adminCommissions });
+          queryClient.invalidateQueries({ queryKey: QUERY_KEYS.publicStudioData });
         },
       )
       // 2. Client chat message
@@ -199,8 +212,9 @@ export function useAdminRealtime(isArtistAdmin: boolean, currentUserId: string |
           const newMsg = payload.new;
           if (newMsg.sender_role === 'client' && newMsg.sender_id !== currentUserId) {
             queryClient.invalidateQueries({ queryKey: QUERY_KEYS.adminCommissions });
+            queryClient.invalidateQueries({ queryKey: QUERY_KEYS.unreadMessageCounts });
             playNotificationSound('message');
-            showToastRef.current(`💬 Client Message: "${newMsg.body.slice(0, 50)}${newMsg.body.length > 50 ? '...' : ''}"`);
+            showToastRef.current(`Client Message: "${newMsg.body.slice(0, 50)}${newMsg.body.length > 50 ? '...' : ''}"`);
             showSystemNotification('New Client Message', {
               body: newMsg.body,
               tag: `msg-${newMsg.id}`,
@@ -221,7 +235,7 @@ export function useAdminRealtime(isArtistAdmin: boolean, currentUserId: string |
           const newPayment = payload.new;
           queryClient.invalidateQueries({ queryKey: QUERY_KEYS.adminCommissions });
           playNotificationSound('stage');
-          showToastRef.current(`🧾 New ${newPayment.kind} payment receipt uploaded for verification!`);
+          showToastRef.current(`New ${newPayment.kind} payment receipt uploaded for verification.`);
           showSystemNotification('New Payment Receipt Uploaded', {
             body: `Client submitted a ${newPayment.kind} payment receipt.`,
             tag: `receipt-${newPayment.id}`,
@@ -240,4 +254,37 @@ export function useAdminRealtime(isArtistAdmin: boolean, currentUserId: string |
       }
     };
   }, [isArtistAdmin, currentUserId, queryClient]);
+}
+
+/**
+ * Realtime subscription hook for public studio_settings singleton.
+ * Synchronizes availability status, max slots, rates, and blocked dates across all connected tabs/clients.
+ */
+export function useStudioSettingsRealtime() {
+  const queryClient = useQueryClient();
+
+  useEffect(() => {
+    if (!supabase) return;
+
+    const channel = supabase
+      .channel('public-studio-settings')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'studio_settings',
+        },
+        () => {
+          queryClient.invalidateQueries({ queryKey: QUERY_KEYS.publicStudioData });
+        },
+      )
+      .subscribe();
+
+    return () => {
+      if (supabase) {
+        supabase.removeChannel(channel);
+      }
+    };
+  }, [queryClient]);
 }

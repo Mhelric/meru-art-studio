@@ -23,20 +23,215 @@ const signedUrlCache = new Map<string, { url: string; expiresAt: number }>();
 export async function uploadReferenceFile(
   clientId: string,
   commissionId: string,
-  file: File,
+  file: File | Blob,
+  fileName?: string,
 ): Promise<{ path: string | null; error: string | null }> {
   if (!supabase) return { path: null, error: 'Supabase not connected' };
 
-  const cleanName = sanitizeFileName(file.name);
+  const rawName = fileName || (file instanceof File && file.name ? file.name : 'reference.png');
+  const cleanName = sanitizeFileName(rawName);
   const path = `${clientId}/${commissionId}/${Date.now()}-${cleanName}`;
 
-  const { error } = await supabase.storage.from(STORAGE_BUCKETS.references).upload(path, file, {
-    cacheControl: '3600',
-    upsert: false,
-  });
+  try {
+    const { error } = await supabase.storage.from(STORAGE_BUCKETS.references).upload(path, file, {
+      cacheControl: '3600',
+      upsert: false,
+      contentType: file.type || 'image/png',
+    });
 
-  if (error) return { path: null, error: error.message };
-  return { path, error: null };
+    if (error) return { path: null, error: error.message };
+    return { path, error: null };
+  } catch (err) {
+    return { path: null, error: err instanceof Error ? err.message : 'Storage upload failed' };
+  }
+}
+
+/**
+ * Resolves a ReferenceFile (which may have a raw File, blob URL, or base64 data URL)
+ * into an uploadable File or Blob.
+ */
+export async function resolveReferenceToUploadable(ref: {
+  file?: File | Blob;
+  previewUrl?: string;
+  name?: string;
+}): Promise<{ file: File | Blob | null; filename: string }> {
+  const filename = ref.name || 'reference.png';
+
+  if (ref.file) {
+    const resolvedName =
+      'name' in ref.file && typeof (ref.file as any).name === 'string'
+        ? (ref.file as any).name
+        : filename;
+    return {
+      file: ref.file,
+      filename: resolvedName,
+    };
+  }
+
+  if (ref.previewUrl) {
+    if (ref.previewUrl.startsWith('data:')) {
+      try {
+        const reconstructed = dataUrlToFile(ref.previewUrl, filename);
+        return { file: reconstructed, filename };
+      } catch {
+        // Fallback
+      }
+    }
+    if (ref.previewUrl.startsWith('blob:')) {
+      try {
+        if (typeof fetch !== 'undefined') {
+          const res = await fetch(ref.previewUrl);
+          const blob = await res.blob();
+          return { file: blob, filename };
+        }
+      } catch {
+        // Fallback
+      }
+    }
+  }
+
+  return { file: null, filename };
+}
+
+/**
+ * Converts a File or Blob into a base64 Data URL, automatically optimizing large images.
+ */
+export async function fileToDataUrl(file: File | Blob): Promise<string> {
+  if (typeof FileReader === 'undefined') {
+    try {
+      const arrayBuffer = await file.arrayBuffer();
+      const base64 = Buffer.from(arrayBuffer).toString('base64');
+      const mime = file.type || 'image/jpeg';
+      return `data:${mime};base64,${base64}`;
+    } catch {
+      return '';
+    }
+  }
+
+  return new Promise((resolve) => {
+    // If under 600KB, read directly without canvas downscaling
+    if (file.size <= 600 * 1024) {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result as string);
+      reader.onerror = () => resolve('');
+      reader.readAsDataURL(file);
+      return;
+    }
+
+    try {
+      const img = new Image();
+      const blobUrl = URL.createObjectURL(file);
+      img.onload = () => {
+        URL.revokeObjectURL(blobUrl);
+        const canvas = document.createElement('canvas');
+        const maxDim = 1600;
+        let width = img.width;
+        let height = img.height;
+        if (width > maxDim || height > maxDim) {
+          if (width > height) {
+            height = Math.round((height * maxDim) / width);
+            width = maxDim;
+          } else {
+            width = Math.round((width * maxDim) / height);
+            height = maxDim;
+          }
+        }
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+          const reader = new FileReader();
+          reader.onload = () => resolve(reader.result as string);
+          reader.onerror = () => resolve('');
+          reader.readAsDataURL(file);
+          return;
+        }
+        ctx.drawImage(img, 0, 0, width, height);
+        resolve(canvas.toDataURL('image/jpeg', 0.85));
+      };
+      img.onerror = () => {
+        URL.revokeObjectURL(blobUrl);
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result as string);
+        reader.onerror = () => resolve('');
+        reader.readAsDataURL(file);
+      };
+      img.src = blobUrl;
+    } catch {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result as string);
+      reader.onerror = () => resolve('');
+      reader.readAsDataURL(file);
+    }
+  });
+}
+
+/**
+ * Optimizes a QR code image to a lightweight, highly-scannable square format (max 600px, JPEG ~35KB).
+ * This ensures it never exceeds localStorage quotas and loads instantaneously.
+ */
+export async function optimizeQrImage(file: File | Blob): Promise<string> {
+  if (typeof Image === 'undefined' || typeof document === 'undefined') {
+    return fileToDataUrl(file);
+  }
+
+  return new Promise((resolve) => {
+    try {
+      const img = new Image();
+      const blobUrl = URL.createObjectURL(file);
+      img.onload = () => {
+        URL.revokeObjectURL(blobUrl);
+        const canvas = document.createElement('canvas');
+        const maxDim = 600;
+        let width = img.width;
+        let height = img.height;
+        if (width > maxDim || height > maxDim) {
+          if (width > height) {
+            height = Math.round((height * maxDim) / width);
+            width = maxDim;
+          } else {
+            width = Math.round((width * maxDim) / height);
+            height = maxDim;
+          }
+        }
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+          fileToDataUrl(file).then(resolve);
+          return;
+        }
+        ctx.drawImage(img, 0, 0, width, height);
+        resolve(canvas.toDataURL('image/jpeg', 0.88));
+      };
+      img.onerror = () => {
+        URL.revokeObjectURL(blobUrl);
+        fileToDataUrl(file).then(resolve);
+      };
+      img.src = blobUrl;
+    } catch {
+      fileToDataUrl(file).then(resolve);
+    }
+  });
+}
+
+/** Reconstructs a File from a base64 Data URL. */
+export function dataUrlToFile(dataUrl: string, fileName: string): File {
+  const [header, base64Data] = dataUrl.split(',');
+  const mimeMatch = header?.match(/:(.*?);/);
+  const mime = mimeMatch ? mimeMatch[1] : 'image/jpeg';
+  if (typeof atob === 'function') {
+    const binary = atob(base64Data || '');
+    const len = binary.length;
+    const bytes = new Uint8Array(len);
+    for (let i = 0; i < len; i++) {
+      bytes[i] = binary.charCodeAt(i);
+    }
+    return new File([bytes], fileName, { type: mime });
+  } else {
+    const buf = Buffer.from(base64Data || '', 'base64');
+    return new File([buf], fileName, { type: mime });
+  }
 }
 
 /**
@@ -194,7 +389,7 @@ export async function resolveStorageUrl(
  * High-res master paths (`wips.highResUrl`) remain canonical paths for on-demand gated retrieval.
  */
 export async function resolveCommissionMedia(order: SubmittedOrder): Promise<SubmittedOrder> {
-  const [resolvedRefs, resolvedWips, resolvedMsgs] = await Promise.all([
+  const [resolvedRefs, resolvedWips, resolvedMsgs, resolvedPmts] = await Promise.all([
     // References
     Promise.all(
       order.references.map(async (ref) => {
@@ -218,6 +413,14 @@ export async function resolveCommissionMedia(order: SubmittedOrder): Promise<Sub
         return { ...msg, attachmentUrl: url || msg.attachmentUrl };
       }),
     ),
+    // Payment receipts
+    Promise.all(
+      (order.payments || []).map(async (p) => {
+        if (!p.receiptPath) return p;
+        const url = await resolveStorageUrl(p.receiptPath, STORAGE_BUCKETS.receipts);
+        return { ...p, receiptPath: url || p.receiptPath };
+      }),
+    ),
   ]);
 
   return {
@@ -225,6 +428,7 @@ export async function resolveCommissionMedia(order: SubmittedOrder): Promise<Sub
     references: resolvedRefs,
     wips: resolvedWips,
     messages: resolvedMsgs,
+    payments: resolvedPmts,
   };
 }
 
