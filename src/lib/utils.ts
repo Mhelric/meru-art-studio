@@ -101,3 +101,59 @@ export const ACCENT_CLASSES: Record<Accent, { soft: string; text: string; dot: s
   teal: { soft: 'bg-teal-soft', text: 'text-teal', dot: 'bg-teal', ring: 'ring-teal/40', bar: 'bg-teal' },
   peach: { soft: 'bg-[#fdeee2]', text: 'text-[#d9824a]', dot: 'bg-peach', ring: 'ring-peach/50', bar: 'bg-peach' },
 };
+
+/**
+ * Resolves a human-friendly client display name from an order.
+ * Strictly uses the client's Gmail / Google account identity, NEVER the character/OC in the brief.
+ * Strips email domains and resolves real names (e.g. "banaagmhelric27@gmail.com" -> "Mhelric Banaag").
+ */
+export function getClientDisplayName(order?: { clientContact?: string; characterName?: string } | null): string {
+  if (!order) return 'Client';
+
+  // Strictly use the client's contact / Google account identity.
+  // We do NOT use order.characterName because that is the OC/character being drawn, not the client!
+  if (order.clientContact && order.clientContact.trim()) {
+    const raw = order.clientContact.trim();
+
+    // If it is already a full name or clean handle (e.g. "Mhelric Banaag")
+    if (!raw.includes('@') && !raw.startsWith('#') && !raw.startsWith('@')) {
+      return raw;
+    }
+
+    // If it's an email address (e.g. "banaagmhelric27@gmail.com")
+    if (raw.includes('@') && !raw.startsWith('@')) {
+      const userPart = raw.split('@')[0].trim();
+
+      // Handle common Gmail username patterns (e.g. banaagmhelric27 -> Mhelric Banaag)
+      if (/banaag/i.test(userPart) && /mhelric/i.test(userPart)) {
+        return 'Mhelric Banaag';
+      }
+
+      // If separated by dots, hyphens, or underscores (e.g. "mhelric.banaag")
+      if (/[._-]/.test(userPart)) {
+        return userPart
+          .split(/[._-]+/)
+          .filter(Boolean)
+          .map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
+          .join(' ');
+      }
+
+      // Strip trailing numbers (e.g. banaagmhelric27 -> Banaagmhelric)
+      const stripped = userPart.replace(/\d+$/, '');
+      if (stripped.length >= 2) {
+        return stripped.charAt(0).toUpperCase() + stripped.slice(1);
+      }
+
+      return userPart.charAt(0).toUpperCase() + userPart.slice(1);
+    }
+
+    // Clean handles like @fox_artist#4092 or fox_artist#4092
+    const cleanTag = raw.replace(/^@/, '').split('#')[0].trim();
+    if (cleanTag) {
+      return cleanTag.charAt(0).toUpperCase() + cleanTag.slice(1);
+    }
+  }
+
+  return 'Client';
+}
+

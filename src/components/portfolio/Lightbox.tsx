@@ -3,13 +3,13 @@ import { ChevronLeft, ChevronRight, Sparkles, X } from 'lucide-react';
 import { useEffect, useMemo, useRef } from 'react';
 import { PORTFOLIO } from '@/data/artist';
 import { useStudio } from '@/context/StudioContext';
-import { ACCENT_CLASSES, TIER_ACCENT, formatUsd, getTier } from '@/lib/utils';
+import { ACCENT_CLASSES, TIER_ACCENT, formatMoney, getTier } from '@/lib/utils';
 import { lockScroll } from '@/lib/smoothScroll';
 import { EASE } from '@/components/ui/Reveal';
 import { ArtImage } from './ArtImage';
 
 export function Lightbox() {
-  const { lightbox, setLightboxIndex, closeLightbox, commissionTier } = useStudio();
+  const { lightbox, setLightboxIndex, closeLightbox, commissionTier, tiers, currency, studioSettings } = useStudio();
 
   const items = useMemo(
     () => (lightbox ? lightbox.ids.map((id) => PORTFOLIO.find((p) => p.id === id)!).filter(Boolean) : []),
@@ -60,8 +60,9 @@ export function Lightbox() {
     };
   }, [index, items.length, closeLightbox, setLightboxIndex]);
 
-  const tier = item ? getTier(item.tier) : null;
+  const tier = item ? (tiers.find((t) => t.id === item.tier) ?? getTier(item.tier)) : null;
   const accent = item ? ACCENT_CLASSES[TIER_ACCENT[item.tier]] : null;
+  const formattedPrice = tier ? formatMoney(tier.basePriceUsd, currency, studioSettings.usdToPhpRate) : '';
 
   const prevItem = () => {
     if (index !== null && items.length > 1) setLightboxIndex((index - 1 + items.length) % items.length);
@@ -190,7 +191,7 @@ export function Lightbox() {
                     <p className="text-[11px] sm:text-xs text-ink-soft">{tier.description}</p>
                   </div>
                   <p className="shrink-0 font-display text-xl sm:text-2xl font-semibold text-ink">
-                    {formatUsd(tier.basePriceUsd)}
+                    {formattedPrice}
                   </p>
                 </div>
               </div>
@@ -204,7 +205,7 @@ export function Lightbox() {
                   }}
                   className="inline-flex w-full items-center justify-center gap-2 rounded-full bg-ink px-4 py-2.5 sm:py-3 text-xs sm:text-sm font-semibold text-white transition-colors hover:bg-coral shadow-sm"
                 >
-                  <Sparkles className="size-3.5 sm:size-4 text-mustard" /> Commission This Style ({formatUsd(tier.basePriceUsd)})
+                  <Sparkles className="size-3.5 sm:size-4 text-mustard" /> Commission This Style ({formattedPrice})
                 </button>
                 <p className="hidden text-center text-[11px] text-ink-mute md:block">
                   Use ← → arrow keys to browse · Esc to close

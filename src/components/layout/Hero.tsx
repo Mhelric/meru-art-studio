@@ -6,7 +6,7 @@ import { useStudio } from '@/context/StudioContext';
 import { ArtImage } from '@/components/portfolio/ArtImage';
 import { StudioStatusBadge } from '@/components/ui/StudioStatusBadge';
 import { EASE, Reveal } from '@/components/ui/Reveal';
-import { ACCENT_CLASSES, TIER_ACCENT, formatUsd, getTier } from '@/lib/utils';
+import { ACCENT_CLASSES, TIER_ACCENT, formatMoney, getTier } from '@/lib/utils';
 import { scrollToTarget } from '@/lib/smoothScroll';
 import type { PortfolioItem } from '@/types';
 
@@ -222,7 +222,8 @@ function ShowcaseCard({
   eager?: boolean;
   className?: string;
 }) {
-  const tier = getTier(item.tier);
+  const { tiers, currency, studioSettings } = useStudio();
+  const tier = tiers.find((t) => t.id === item.tier) ?? getTier(item.tier);
   const accent = ACCENT_CLASSES[TIER_ACCENT[item.tier]];
 
   return (
@@ -248,7 +249,7 @@ function ShowcaseCard({
           <p className="truncate text-[11px] text-ink-mute sm:text-xs">{tier.label}</p>
         </div>
         <span className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium sm:px-2.5 sm:text-xs ${accent.soft} ${accent.text}`}>
-          {formatUsd(tier.basePriceUsd)}
+          {formatMoney(tier.basePriceUsd, currency, studioSettings.usdToPhpRate)}
         </span>
       </div>
     </button>

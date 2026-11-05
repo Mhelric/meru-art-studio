@@ -27,6 +27,32 @@ export interface RevisionHistoryEntry {
 export const DEFAULT_MAX_REVISIONS = 2;
 
 /**
+ * Resolves the effective maximum free major revision allowance for an order,
+ * checking explicit `order.maxRevisions` first, then the latest artist
+ * `[Studio Notice]: Meru Art updated revision allowance to X included rounds.`
+ * message in the order's message log, and defaulting to `DEFAULT_MAX_REVISIONS` (2).
+ */
+export function resolveOrderMaxRevisions(order: SubmittedOrder): number {
+  if (typeof order.maxRevisions === 'number' && !Number.isNaN(order.maxRevisions)) {
+    return Math.max(0, order.maxRevisions);
+  }
+  const msgs = order.messages ?? [];
+  for (let i = msgs.length - 1; i >= 0; i--) {
+    const m = msgs[i];
+    if (m.senderRole === 'artist' || m.senderRole === 'system') {
+      const match = m.body.match(/updated revision allowance to (\d+) included rounds/i);
+      if (match) {
+        const parsed = parseInt(match[1], 10);
+        if (!Number.isNaN(parsed)) {
+          return Math.max(0, parsed);
+        }
+      }
+    }
+  }
+  return DEFAULT_MAX_REVISIONS;
+}
+
+/**
  * Calculates current revision allowance, used rounds, and remaining slots.
  * - Sketch Phase (`sketching` / `sketch_approval`): Revisions are completely FREE with NO LIMIT.
  * - Lineart & Coloring Phase (`lineart_coloring`):
@@ -34,7 +60,7 @@ export const DEFAULT_MAX_REVISIONS = 2;
  *   - Major Revisions (e.g. redraw, pose overhaul): Counted against `maxAllowed` (default 2 rounds).
  */
 export function getRevisionAllowance(order: SubmittedOrder): RevisionAllowance {
-  const maxAllowed = order.maxRevisions ?? DEFAULT_MAX_REVISIONS;
+  const maxAllowed = resolveOrderMaxRevisions(order);
   const isSketchPhase = order.stage === 'sketching' || order.stage === 'sketch_approval';
 
   // Extract from messages or explicit order.revisionCount
@@ -94,7 +120,7 @@ export function getRevisionAllowance(order: SubmittedOrder): RevisionAllowance {
  */
 export function parseRevisionHistory(order: SubmittedOrder): RevisionHistoryEntry[] {
   const entries: RevisionHistoryEntry[] = [];
-  const maxAllowed = order.maxRevisions ?? DEFAULT_MAX_REVISIONS;
+  const maxAllowed = resolveOrderMaxRevisions(order);
   let counter = 0;
 
   for (const msg of order.messages ?? []) {

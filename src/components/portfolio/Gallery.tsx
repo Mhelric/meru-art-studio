@@ -3,7 +3,7 @@ import { ArrowUpRight, Sparkles } from 'lucide-react';
 import { useMemo } from 'react';
 import { PORTFOLIO, TIERS } from '@/data/artist';
 import { useStudio } from '@/context/StudioContext';
-import { ACCENT_CLASSES, TIER_ACCENT, cn, formatUsd, getTier } from '@/lib/utils';
+import { ACCENT_CLASSES, TIER_ACCENT, cn, formatMoney, getTier } from '@/lib/utils';
 import type { GalleryFilter } from '@/types';
 import { SectionHeading } from '@/components/ui/SectionHeading';
 import { EASE } from '@/components/ui/Reveal';
@@ -15,7 +15,7 @@ const FILTERS: { id: GalleryFilter; label: string }[] = [
 ];
 
 export function Gallery() {
-  const { commissionTier, openLightbox, galleryFilter, setGalleryFilter } = useStudio();
+  const { commissionTier, openLightbox, galleryFilter, setGalleryFilter, tiers, currency, studioSettings } = useStudio();
 
   const items = useMemo(
     () => (galleryFilter === 'all' ? PORTFOLIO : PORTFOLIO.filter((p) => p.tier === galleryFilter)),
@@ -79,8 +79,9 @@ export function Gallery() {
         <motion.div layout className="columns-2 gap-3 sm:gap-5 lg:columns-3">
           <AnimatePresence mode="popLayout">
             {items.map((item, i) => {
-              const tier = getTier(item.tier);
+              const tier = tiers.find((t) => t.id === item.tier) ?? getTier(item.tier);
               const accent = ACCENT_CLASSES[TIER_ACCENT[item.tier]];
+              const priceLabel = formatMoney(tier.basePriceUsd, currency, studioSettings.usdToPhpRate);
               return (
                 <motion.article
                   key={item.id}
@@ -124,11 +125,11 @@ export function Gallery() {
                     <button
                       type="button"
                       onClick={() => commissionTier(item.tier)}
-                      title={`Commission ${tier.label} (${formatUsd(tier.basePriceUsd)})`}
+                      title={`Commission ${tier.label} (${priceLabel})`}
                       className="inline-flex w-full shrink-0 items-center justify-center gap-1 rounded-full border border-line bg-canvas px-2.5 py-1 text-[11px] font-medium text-ink transition-colors hover:border-ink hover:bg-ink hover:text-white sm:w-auto sm:px-3 sm:py-1.5 sm:text-xs"
                     >
                       <Sparkles className="size-3 text-coral" />
-                      <span>Commission · {formatUsd(tier.basePriceUsd)}</span>
+                      <span>Commission · {priceLabel}</span>
                     </button>
                   </div>
                 </motion.article>

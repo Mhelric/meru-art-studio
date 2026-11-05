@@ -956,7 +956,7 @@ function InnerStudioProvider({ children }: { children: ReactNode }) {
         payload,
       );
 
-      await insertWipInDb(orderId, {
+      const { error } = await insertWipInDb(orderId, {
         stage: nextStage,
         title: payload.title,
         watermarkedUrl: payload.imageUrl || '',
@@ -964,6 +964,11 @@ function InnerStudioProvider({ children }: { children: ReactNode }) {
         isFinal: payload.isFinal,
         artistNote: payload.artistNote,
       });
+
+      if (error) {
+        showToast(`WIP upload failed: ${error}`);
+        return;
+      }
 
       if (nextStage !== currentStage || nextProgress !== currentProgress) {
         updateStageMut.mutate({ commissionId: orderId, stage: nextStage, progress: nextProgress });
@@ -1119,10 +1124,13 @@ function InnerStudioProvider({ children }: { children: ReactNode }) {
       thankYouMessage: string,
       review?: ClientReview,
     ) => {
-      if (review) {
-        await submitClientReviewInDb(orderId, review);
-      } else {
-        await clientCompleteCommissionInDb(orderId);
+      const res = review
+        ? await submitClientReviewInDb(orderId, review)
+        : await clientCompleteCommissionInDb(orderId);
+
+      if (!res.success && res.error) {
+        showToast(`Could not complete order: ${res.error}`);
+        return;
       }
 
       if (review) {
@@ -1168,14 +1176,24 @@ function InnerStudioProvider({ children }: { children: ReactNode }) {
     (orderId: string, newMax: number) => {
       const target = submittedOrders.find((o) => o.id === orderId);
       if (!target) return;
-      target.maxRevisions = Math.max(0, newMax);
-      sendOrderMessage(
-        orderId,
-        `[Studio Notice]: Meru Art updated revision allowance to ${newMax} included rounds.`,
-        { senderRole: 'artist' },
-      );
+      const clampedMax = Math.max(0, newMax);
+      const noticeBody = `[Studio Notice]: Meru Art updated revision allowance to ${clampedMax} included rounds.`;
+
+      queryClient.setQueriesData<SubmittedOrder[]>({ queryKey: QUERY_KEYS.commissions }, (old) => {
+        if (!old) return old;
+        return old.map((o) =>
+          o.id === orderId
+            ? {
+                ...o,
+                maxRevisions: clampedMax,
+              }
+            : o,
+        );
+      });
+
+      sendOrderMessage(orderId, noticeBody, { senderRole: 'artist' });
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.commissions });
-      showToast(`Updated revision allowance to ${newMax} rounds!`);
+      showToast(`Updated revision allowance to ${clampedMax} rounds!`);
     },
     [queryClient, sendOrderMessage, showToast, submittedOrders],
   );

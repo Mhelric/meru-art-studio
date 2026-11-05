@@ -1,12 +1,11 @@
 import { useState, useRef, useEffect } from 'react';
 import { useStudio } from '@/context/StudioContext';
 import { useAdminRealtime } from '@/lib/realtime';
-import { AdminNav, type AdminSubTab } from './AdminNav';
+import { AdminNav, type AdminSubTab, type PipelineSection, type SettingsSection } from './AdminNav';
 import { useSegmentedAdminOrders } from './useSegmentedAdminOrders';
 import { InboxTab } from './tabs/InboxTab';
 import { PipelineTab } from './tabs/PipelineTab';
 import { IncomingBriefsTab } from './tabs/IncomingBriefsTab';
-import { PaymentsTab } from './tabs/PaymentsTab';
 import { StudioSettingsTab } from './tabs/StudioSettingsTab';
 import { ArchiveTab } from './tabs/ArchiveTab';
 import { DeclineReasonModal } from './dialogs/DeclineReasonModal';
@@ -23,11 +22,9 @@ export function AdminDashboard() {
     declineOrder,
     cancelOrder,
     deleteOrder,
-    toggleOrderPaymentFlag,
     isArtistAdmin,
     totalUnreadCount,
     user,
-    showToast,
   } = useStudio();
 
   // Realtime WebSocket Subscription for Artist Admin control surface
@@ -42,6 +39,7 @@ export function AdminDashboard() {
       const stored = sessionStorage.getItem('meru_admin_target_subtab') as AdminSubTab | null;
       if (stored && ['pipeline', 'briefs', 'payments', 'archive', 'inbox', 'settings'].includes(stored)) {
         sessionStorage.removeItem('meru_admin_target_subtab');
+        if (stored === 'payments') return 'pipeline';
         return stored;
       }
     } catch {
@@ -50,13 +48,22 @@ export function AdminDashboard() {
     return segmented.counts.briefs > 0 ? 'briefs' : 'pipeline';
   });
 
+  const [pipelineSection, setPipelineSection] = useState<PipelineSection>('details');
+  const [settingsSection, setSettingsSection] = useState<SettingsSection>('availability');
+
   // Listen for direct subtab switch requests (e.g., from NotificationBell)
   useEffect(() => {
     const handleSwitch = (e: Event) => {
-      const detail = (e as CustomEvent<AdminSubTab>).detail;
-      if (detail && ['pipeline', 'briefs', 'payments', 'archive', 'inbox', 'settings'].includes(detail)) {
+      const detail = (e as CustomEvent<string>).detail;
+      if (detail === 'payments') {
         userInteractedRef.current = true;
-        setActiveSubTab(detail);
+        setActiveSubTab('pipeline');
+        setPipelineSection('payments');
+        return;
+      }
+      if (detail && ['pipeline', 'briefs', 'archive', 'inbox', 'settings'].includes(detail)) {
+        userInteractedRef.current = true;
+        setActiveSubTab(detail as AdminSubTab);
       }
     };
     window.addEventListener('meru_switch_admin_subtab', handleSwitch);
@@ -97,11 +104,9 @@ export function AdminDashboard() {
 
   const handleAcceptBrief = (orderId: string) => {
     setOrderStage(orderId, 'awaiting_deposit');
-    const order = submittedOrders.find((o) => o.id === orderId);
-    showToast(`Approved #${order?.orderCode || orderId.slice(0, 8)}! Client notified to upload deposit.`);
-    // Automatically switch to pipeline tab if desired
     setActiveOrderId(orderId);
     setActiveSubTab('pipeline');
+    setPipelineSection('details');
   };
 
   const handleConfirmDeclineOrCancel = (orderId: string, reason?: string) => {
@@ -151,7 +156,18 @@ export function AdminDashboard() {
             mode="sidebar"
             activeSubTab={activeSubTab}
             onChangeSubTab={handleSubTabChange}
+            activePipelineSection={pipelineSection}
+            onChangePipelineSection={(sec) => {
+              setActiveSubTab('pipeline');
+              setPipelineSection(sec);
+            }}
+            activeSettingsSection={settingsSection}
+            onChangeSettingsSection={(sec) => {
+              setActiveSubTab('settings');
+              setSettingsSection(sec);
+            }}
             counts={navCounts}
+            hasActiveOrder={segmented.counts.active > 0}
           />
         </aside>
 
@@ -161,7 +177,18 @@ export function AdminDashboard() {
             mode="bottom-bar"
             activeSubTab={activeSubTab}
             onChangeSubTab={handleSubTabChange}
+            activePipelineSection={pipelineSection}
+            onChangePipelineSection={(sec) => {
+              setActiveSubTab('pipeline');
+              setPipelineSection(sec);
+            }}
+            activeSettingsSection={settingsSection}
+            onChangeSettingsSection={(sec) => {
+              setActiveSubTab('settings');
+              setSettingsSection(sec);
+            }}
             counts={navCounts}
+            hasActiveOrder={segmented.counts.active > 0}
           />
         </div>
 
@@ -182,6 +209,7 @@ export function AdminDashboard() {
                 onOpenPipeline={(orderId) => {
                   setActiveOrderId(orderId);
                   setActiveSubTab('pipeline');
+                  setPipelineSection('details');
                 }}
                 onOpenArchive={(orderId) => {
                   setActiveOrderId(orderId);
@@ -190,11 +218,13 @@ export function AdminDashboard() {
               />
             )}
 
-            {activeSubTab === 'pipeline' && (
+            {(activeSubTab === 'pipeline' || activeSubTab === 'payments') && (
               <PipelineTab
                 orders={segmented.activePipeline}
                 activeOrderId={activeOrderId}
                 setActiveOrderId={setActiveOrderId}
+                pipelineSection={activeSubTab === 'payments' ? 'payments' : pipelineSection}
+                onChangePipelineSection={setPipelineSection}
                 onOpenCancelModal={(order) => {
                   setReasonModalMode('cancel');
                   setOrderToDeclineOrCancel(order);
@@ -213,14 +243,12 @@ export function AdminDashboard() {
               />
             )}
 
-            {activeSubTab === 'payments' && (
-              <PaymentsTab
-                orders={segmented.pendingPayments}
-                onTogglePaymentFlag={toggleOrderPaymentFlag}
+            {activeSubTab === 'settings' && (
+              <StudioSettingsTab
+                settingsSection={settingsSection}
+                onChangeSettingsSection={setSettingsSection}
               />
             )}
-
-            {activeSubTab === 'settings' && <StudioSettingsTab />}
 
             {activeSubTab === 'archive' && (
               <ArchiveTab

@@ -18,7 +18,8 @@ import {
 import { useStudio, DEFAULT_PAYMENT_DETAILS } from '@/context/StudioContext';
 import { optimizeQrImage } from '@/lib/storage';
 import { cn, formatMoney, formatShortDate } from '@/lib/utils';
-import type { AvailabilityStatus, TierId, StudioPaymentDetails } from '@/types';
+import { type AvailabilityStatus, type TierId, type StudioPaymentDetails } from '@/types';
+import { type SettingsSection, SETTINGS_SUB_ITEMS } from '../AdminNav';
 import {
   expandDateRange,
   isDateInPast,
@@ -37,7 +38,21 @@ function toIsoDate(year: number, monthIndex: number, day: number) {
   return `${year}-${m}-${d}`;
 }
 
-export function StudioSettingsTab() {
+interface StudioSettingsTabProps {
+  settingsSection?: SettingsSection;
+  onChangeSettingsSection?: (section: SettingsSection) => void;
+}
+
+export function StudioSettingsTab({
+  settingsSection,
+  onChangeSettingsSection,
+}: StudioSettingsTabProps = {}) {
+  const [internalSection, setInternalSection] = useState<SettingsSection>('availability');
+  const currentSection = settingsSection ?? internalSection;
+  const setSection = (s: SettingsSection) => {
+    if (onChangeSettingsSection) onChangeSettingsSection(s);
+    else setInternalSection(s);
+  };
   const {
     studioSettings,
     tiers,
@@ -229,12 +244,36 @@ export function StudioSettingsTab() {
         </button>
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-12">
-        {/* Availability & Slots (6 cols) */}
-        <div className="card space-y-5 p-5 lg:col-span-6">
+      {/* Top Sub-section Pills */}
+      <div className="flex flex-wrap items-center gap-2 border-b border-line pb-3">
+        {SETTINGS_SUB_ITEMS.map((item) => {
+          const Icon = item.icon;
+          const active = currentSection === item.id;
+          return (
+            <button
+              key={item.id}
+              type="button"
+              onClick={() => setSection(item.id)}
+              className={cn(
+                'inline-flex items-center gap-2 rounded-2xl px-4 py-2 text-xs font-semibold transition-all',
+                active
+                  ? 'bg-ink text-white shadow-xs'
+                  : 'border border-line bg-canvas text-ink-soft hover:border-ink/30 hover:text-ink',
+              )}
+            >
+              <Icon className="size-3.5" />
+              <span>{item.label}</span>
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Availability & Slots Section */}
+      {currentSection === 'availability' && (
+        <div className="card space-y-5 p-5 sm:p-6 w-full">
           <div className="flex items-center justify-between border-b border-line pb-3">
             <div>
-              <p className="text-[11px] font-semibold text-coral uppercase">1. Availability & Slots</p>
+              <p className="text-[11px] font-semibold text-coral uppercase">Availability & Slots</p>
               <h4 className="font-display text-xl font-bold text-ink">Quick Studio Toggles</h4>
             </div>
             <span className="rounded-full bg-canvas px-3 py-1 text-xs font-semibold text-ink ring-1 ring-line">
@@ -521,12 +560,14 @@ export function StudioSettingsTab() {
             )}
           </div>
         </div>
+      )}
 
-        {/* Dynamic Pricing & Multiplier Editor (6 cols) */}
-        <div className="card space-y-5 p-5 lg:col-span-6">
+      {/* Dynamic Pricing & Multiplier Editor */}
+      {currentSection === 'pricing' && (
+        <div className="card space-y-5 p-5 sm:p-6 w-full">
           <div className="flex items-center justify-between border-b border-line pb-3">
             <div>
-              <p className="text-[11px] font-semibold text-coral uppercase">2. Live Storefront Pricing</p>
+              <p className="text-[11px] font-semibold text-coral uppercase">Storefront Pricing</p>
               <h4 className="font-display text-xl font-bold text-ink">Dynamic Price & Rate Editor</h4>
             </div>
             <DollarSign className="size-5 text-teal" />
@@ -615,22 +656,23 @@ export function StudioSettingsTab() {
             </div>
           </div>
         </div>
-      </div>
+      )}
 
-      {/* 3. Studio Payment Credentials & Gateways (PayPal, GCash QR & Bank Accounts) */}
-      <div className="card space-y-5 p-5">
-        <div className="flex items-center justify-between border-b border-line pb-3">
-          <div>
-            <p className="text-[11px] font-semibold text-coral uppercase">3. Studio Payment Gateways</p>
-            <h4 className="font-display text-xl font-bold text-ink">
-              PayPal, GCash QR & Bank Credentials
-            </h4>
-            <p className="text-xs text-ink-soft">
-              These details are presented to clients in the interactive payment modal, QR scanner, and invoices.
-            </p>
+      {/* Studio Payment Credentials & Gateways (PayPal, GCash QR & Bank Accounts) */}
+      {currentSection === 'gateways' && (
+        <div className="card space-y-5 p-5 sm:p-6 w-full">
+          <div className="flex items-center justify-between border-b border-line pb-3">
+            <div>
+              <p className="text-[11px] font-semibold text-coral uppercase">Studio Payment Gateways</p>
+              <h4 className="font-display text-xl font-bold text-ink">
+                PayPal, GCash QR & Bank Credentials
+              </h4>
+              <p className="text-xs text-ink-soft">
+                These details are presented to clients in the interactive payment modal, QR scanner, and invoices.
+              </p>
+            </div>
+            <CreditCard className="size-5 text-coral" />
           </div>
-          <CreditCard className="size-5 text-coral" />
-        </div>
 
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {/* PayPal Card */}
@@ -828,6 +870,7 @@ export function StudioSettingsTab() {
           </button>
         </div>
       </div>
+      )}
     </div>
   );
 }

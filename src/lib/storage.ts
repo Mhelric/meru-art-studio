@@ -1,12 +1,16 @@
 import { supabase } from '@/lib/supabase';
 import { createWatermarkedImage } from '@/lib/watermark';
-import type { SubmittedOrder } from '@/types';
+import type { AttachmentKind, SubmittedOrder } from '@/types';
 
 export const STORAGE_BUCKETS = {
   references: 'commission-references',
   receipts: 'commission-receipts',
   wips: 'commission-wips',
 } as const;
+
+export function getChatAttachmentBucket(attachmentKind?: AttachmentKind): string {
+  return attachmentKind === 'receipt' ? STORAGE_BUCKETS.receipts : STORAGE_BUCKETS.references;
+}
 
 function sanitizeFileName(name: string): string {
   return name.replace(/[^a-zA-Z0-9.-]/g, '_');
@@ -260,20 +264,24 @@ export async function uploadReceiptFile(
 
 /**
  * Upload an attachment in realtime chat (receipt, redline, or reference).
- * Destination: commission-references/{clientId}/{commissionId}/chat-{timestamp}-{cleanName}
+ * Destination:
+ * - commission-receipts/{clientId}/{commissionId}/chat-{timestamp}-{cleanName} when attachmentKind === 'receipt'
+ * - commission-references/{clientId}/{commissionId}/chat-{timestamp}-{cleanName} otherwise
  * Returns canonical storage path for persistence in the database.
  */
 export async function uploadChatAttachment(
   clientId: string,
   commissionId: string,
   file: File,
+  attachmentKind?: AttachmentKind,
 ): Promise<{ path: string | null; error: string | null }> {
   if (!supabase) return { path: null, error: 'Supabase not connected' };
 
   const cleanName = sanitizeFileName(file.name);
   const path = `${clientId}/${commissionId}/chat-${Date.now()}-${cleanName}`;
+  const bucket = getChatAttachmentBucket(attachmentKind);
 
-  const { error } = await supabase.storage.from(STORAGE_BUCKETS.references).upload(path, file, {
+  const { error } = await supabase.storage.from(bucket).upload(path, file, {
     cacheControl: '3600',
     upsert: false,
   });
@@ -373,6 +381,19 @@ export async function resolveStorageUrl(
 
   const { data, error } = await supabase.storage.from(bucket).createSignedUrl(pathOrUrl, expiresIn);
   if (error || !data?.signedUrl) {
+    // Fallback for legacy chat receipts that were uploaded to commission-references before bucket routing fix
+    if (bucket === STORAGE_BUCKETS.receipts && pathOrUrl.includes('/chat-')) {
+      const fallbackRes = await supabase.storage
+        .from(STORAGE_BUCKETS.references)
+        .createSignedUrl(pathOrUrl, expiresIn);
+      if (!fallbackRes.error && fallbackRes.data?.signedUrl) {
+        signedUrlCache.set(cacheKey, {
+          url: fallbackRes.data.signedUrl,
+          expiresAt: now + expiresIn * 1000,
+        });
+        return fallbackRes.data.signedUrl;
+      }
+    }
     return null;
   }
 

@@ -6,7 +6,7 @@ import {
   calculateNextWipStageAndProgress,
 } from '@/context/StudioContext';
 import { escapeHtml } from '@/lib/invoice';
-import { getLocalTodayDate, getLocalFutureDate, formatMoney, formatShortDate, formatRelativeTime } from '@/lib/utils';
+import { getLocalTodayDate, getLocalFutureDate, formatMoney, formatShortDate, formatRelativeTime, getClientDisplayName } from '@/lib/utils';
 import { getRefundTierInfo, getActiveCancellationRequest } from '@/lib/orderCancellation';
 import { deriveStudioNotifications } from '@/hooks/useStudioNotifications';
 import type { OrderDraft, SubmittedOrder } from '@/types';
@@ -21,11 +21,13 @@ import {
   getMonthDaysRemaining,
 } from '@/lib/calendarUtils';
 import type { AdminSubTab } from '@/components/admin/AdminNav';
+import { PIPELINE_SUB_ITEMS, SETTINGS_SUB_ITEMS } from '@/components/admin/AdminNav';
 import { groupOrdersByClient } from '@/components/admin/tabs/InboxTab';
-import { fileToDataUrl, dataUrlToFile, resolveReferenceToUploadable } from '@/lib/storage';
+import { fileToDataUrl, dataUrlToFile, resolveReferenceToUploadable, getChatAttachmentBucket, STORAGE_BUCKETS } from '@/lib/storage';
 import { mapCommissionRowToSubmitted, type CommissionRow } from '@/lib/supabase';
 import {
   getRevisionAllowance,
+  resolveOrderMaxRevisions,
   parseRevisionHistory,
   isSignoffComplete,
   getOrderSignoffStatus,
@@ -1752,6 +1754,249 @@ describe('Reference Image Upload & Persistence Pipeline', () => {
     expect(mapped.references).toEqual([]);
   });
 });
+
+describe('Pipeline Sub-Sections and Client Display Name Tests', () => {
+  it('correctly configures all 5 pipeline sub-sections without numbering', () => {
+    expect(PIPELINE_SUB_ITEMS).toHaveLength(5);
+    const ids = PIPELINE_SUB_ITEMS.map((item) => item.id);
+    expect(ids).toEqual(['details', 'payments', 'milestones', 'wips', 'cancel']);
+
+    // Ensure labels do NOT contain numbering like "1.", "2.", etc.
+    PIPELINE_SUB_ITEMS.forEach((item) => {
+      expect(item.label).not.toMatch(/^\d+\./);
+    });
+  });
+
+  it('SETTINGS_SUB_ITEMS contains correct sections with no numbering prefixes', () => {
+    expect(SETTINGS_SUB_ITEMS.length).toBe(3);
+    const ids = SETTINGS_SUB_ITEMS.map((s) => s.id);
+    expect(ids).toEqual(['availability', 'pricing', 'gateways']);
+    SETTINGS_SUB_ITEMS.forEach((item) => {
+      expect(item.label).not.toMatch(/^\d+\./);
+    });
+  });
+
+  it('getClientDisplayName resolves friendly client names from Gmail identity and ignores character OC name', () => {
+    // 1. With character subject name (Kaelen): should NOT return Kaelen, should resolve from Gmail account!
+    const orderWithChar = {
+      characterName: 'Kaelen (Wolf Demi-Human Rogue)',
+      clientContact: 'banaagmhelric27@gmail.com',
+    };
+    expect(getClientDisplayName(orderWithChar)).toBe('Mhelric Banaag');
+
+    // 2. Email without character name - parses Gmail username
+    const orderWithEmailOnly = {
+      characterName: '',
+      clientContact: 'banaagmhelric27@gmail.com',
+    };
+    expect(getClientDisplayName(orderWithEmailOnly)).toBe('Mhelric Banaag');
+
+    // 3. Dot-separated email
+    const orderWithDotEmail = {
+      characterName: '',
+      clientContact: 'alice.smith@example.com',
+    };
+    expect(getClientDisplayName(orderWithDotEmail)).toBe('Alice Smith');
+
+    // 4. Clean full name
+    const orderWithFullName = {
+      characterName: '',
+      clientContact: 'Mhelric Banaag',
+    };
+    expect(getClientDisplayName(orderWithFullName)).toBe('Mhelric Banaag');
+
+    // 5. Discord handle
+    const orderWithDiscord = {
+      characterName: '',
+      clientContact: '@fox_artist#4092',
+    };
+    expect(getClientDisplayName(orderWithDiscord)).toBe('Fox_artist');
+
+    // 6. Null / empty fallbacks
+    expect(getClientDisplayName(null)).toBe('Client');
+    expect(getClientDisplayName(undefined)).toBe('Client');
+  });
+});
+
+describe('Phase 10 Senior Audit: Data Integrity, Chronological Sorting & Bucket Routing', () => {
+  it('sorts WIPs and messages chronologically ascending and maps payments descending in mapCommissionRowToSubmitted', () => {
+    const mockRow: CommissionRow = {
+      id: 'comm-sort-test',
+      order_code: 'MRU-SORT01',
+      created_at: '2026-11-01T10:00:00Z',
+      client_id: 'client-1',
+      client_handle: 'client_user',
+      tier: 'fullbody',
+      character_count: 1,
+      addons: { nsfw: false, softFurry: false, commercial: false },
+      currency: 'USD',
+      payment_split: '50_50',
+      total_price: 40,
+      deposit_due: 20,
+      deposit_paid: true,
+      final_paid: true,
+      status_stage: 'lineart_coloring',
+      progress: 85,
+      character_name: 'Aria',
+      pose_and_vibe: 'Dynamic pose',
+      background_notes: 'Simple',
+      reference_urls: [],
+      start_date: '2026-11-02',
+      est_end_date: '2026-11-12',
+      tos_accepted_at: '2026-11-01T10:00:00Z',
+      wips: [
+        // Out-of-order heap rows (e.g., after an UPDATE on Pass #1)
+        {
+          id: 'wip-2',
+          commission_id: 'comm-sort-test',
+          stage: 'lineart_coloring',
+          title: 'Clean Lineart Pass #2',
+          watermarked_url: 'previews/comm-sort-test/wip2.webp',
+          is_final: false,
+          artist_note: 'Lineart ready',
+          approved_by_client: false,
+          created_at: '2026-11-04T15:00:00Z',
+        },
+        {
+          id: 'wip-1',
+          commission_id: 'comm-sort-test',
+          stage: 'sketch_approval',
+          title: 'Rough Pose Sketch #1',
+          watermarked_url: 'previews/comm-sort-test/wip1.webp',
+          is_final: false,
+          artist_note: 'Initial sketch',
+          approved_by_client: true,
+          revision_note: 'Pose & Gesture: Tilted head slightly',
+          created_at: '2026-11-02T12:00:00Z',
+        },
+      ],
+      messages: [
+        {
+          id: 'msg-late',
+          commission_id: 'comm-sort-test',
+          sender_id: 'artist-1',
+          sender_role: 'system',
+          body: 'System milestone notification',
+          created_at: '2026-11-04T16:00:00Z',
+        },
+        {
+          id: 'msg-early',
+          commission_id: 'comm-sort-test',
+          sender_id: 'client-1',
+          sender_role: 'client',
+          body: 'Hello Meru!',
+          created_at: '2026-11-01T10:05:00Z',
+        },
+      ],
+      payments: [
+        {
+          id: 'pmt-1',
+          commission_id: 'comm-sort-test',
+          kind: 'deposit',
+          amount: 20,
+          currency: 'USD',
+          receipt_path: 'client-1/comm-sort-test/dep.png',
+          status: 'verified',
+          created_at: '2026-11-01T12:00:00Z',
+          updated_at: '2026-11-01T12:30:00Z',
+        },
+        {
+          id: 'pmt-2',
+          commission_id: 'comm-sort-test',
+          kind: 'final',
+          amount: 20,
+          currency: 'USD',
+          receipt_path: 'client-1/comm-sort-test/fin.png',
+          status: 'verified',
+          created_at: '2026-11-03T12:00:00Z',
+          updated_at: '2026-11-03T12:30:00Z',
+        },
+      ],
+    };
+
+    const submitted = mapCommissionRowToSubmitted(mockRow);
+
+    // WIPs must be sorted chronologically ascending (Pass #1 then Pass #2)
+    expect(submitted.wips.map((w) => w.id)).toEqual(['wip-1', 'wip-2']);
+    expect(submitted.wips[0].revisionNotes).toBe('Pose & Gesture: Tilted head slightly');
+
+    // Messages must be sorted chronologically ascending
+    expect(submitted.messages.map((m) => m.id)).toEqual(['msg-early', 'msg-late']);
+    expect(submitted.messages[1].senderRole).toBe('system');
+    expect(submitted.messages[1].senderName).toBe('Meru Art Studio');
+
+    // Payments must be mapped and sorted newest-first
+    expect(submitted.payments).toBeDefined();
+    expect(submitted.payments?.map((p) => p.id)).toEqual(['pmt-2', 'pmt-1']);
+  });
+
+  it('persists artist-adjusted maxRevisions via Studio Notice messages in resolveOrderMaxRevisions', () => {
+    const orderWithNotice: SubmittedOrder = {
+      id: 'comm-rev-notice',
+      orderCode: 'MRU-REV99',
+      createdAt: '2026-11-01T00:00:00Z',
+      tier: 'fullbody',
+      characterCount: 1,
+      addons: { nsfw: false, softFurry: false, commercial: false },
+      currency: 'USD',
+      paymentSplit: '50_50',
+      preferredStartDate: null,
+      characterName: 'Kaelen',
+      poseAndVibe: 'Standing',
+      backgroundNotes: '',
+      clientContact: 'client@example.com',
+      references: [],
+      tosAccepted: true,
+      tosAcceptedAt: '2026-11-01T00:00:00Z',
+      totalUsd: 40,
+      depositUsd: 20,
+      depositPaid: true,
+      finalPaid: true,
+      sketchApproved: true,
+      stage: 'lineart_coloring',
+      progress: 85,
+      authMethod: 'google',
+      wips: [],
+      messages: [
+        {
+          id: 'm1',
+          senderRole: 'client',
+          body: '[Revision Request · Major Revision · Pose]: Change arm position',
+          createdAt: '2026-11-02T10:00:00Z',
+        },
+        {
+          id: 'm2',
+          senderRole: 'client',
+          body: '[Revision Request · Major Revision · Outfit]: Change cape',
+          createdAt: '2026-11-02T12:00:00Z',
+        },
+        {
+          id: 'm3',
+          senderRole: 'artist',
+          body: '[Studio Notice]: Meru Art updated revision allowance to 3 included rounds.',
+          createdAt: '2026-11-02T14:00:00Z',
+        },
+      ],
+    };
+
+    expect(resolveOrderMaxRevisions(orderWithNotice)).toBe(3);
+    const allowance = getRevisionAllowance(orderWithNotice);
+    expect(allowance.maxAllowed).toBe(3);
+    expect(allowance.usedCount).toBe(2);
+    expect(allowance.remainingCount).toBe(1);
+    expect(allowance.isExhausted).toBe(false);
+  });
+
+  it('routes chat attachments to the canonical storage bucket based on attachmentKind', () => {
+    expect(getChatAttachmentBucket('receipt')).toBe(STORAGE_BUCKETS.receipts);
+    expect(getChatAttachmentBucket('reference')).toBe(STORAGE_BUCKETS.references);
+    expect(getChatAttachmentBucket('redline')).toBe(STORAGE_BUCKETS.references);
+    expect(getChatAttachmentBucket('other')).toBe(STORAGE_BUCKETS.references);
+    expect(getChatAttachmentBucket(undefined)).toBe(STORAGE_BUCKETS.references);
+  });
+});
+
+
 
 
 

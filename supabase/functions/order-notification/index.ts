@@ -40,6 +40,7 @@ function formatDiscordEmbed(
     character_name: string;
     status_stage: string;
   },
+  siteUrl: string,
 ) {
   const code = comm.order_code || payload.commission_id.slice(0, 8).toUpperCase();
   const timestamp = new Date().toISOString();
@@ -50,7 +51,7 @@ function formatDiscordEmbed(
         title: `🎨 New Commission Brief Received: #${code}`,
         description: `**Client:** @${comm.client_handle || 'Client'}\n**Tier:** ${comm.tier}\n**Character:** ${comm.character_name || 'N/A'}\n**Total:** $${comm.total_price} ${comm.currency || 'USD'}`,
         color: 0xf59e0b, // Mustard
-        url: 'https://meruart.studio/#admin',
+        url: `${siteUrl}/#admin`,
         fields: [
           { name: 'Status', value: 'Pending Review', inline: true },
           { name: 'Order Code', value: `#${code}`, inline: true },
@@ -64,7 +65,7 @@ function formatDiscordEmbed(
         title: `🚀 Order #${code} Advanced to ${(payload.new_stage || comm.status_stage).toUpperCase()}`,
         description: `Commission stage changed${payload.old_stage ? ` from **${payload.old_stage}**` : ''} to **${payload.new_stage || comm.status_stage}**.`,
         color: 0xa78bfa, // Lavender
-        url: 'https://meruart.studio/#track',
+        url: `${siteUrl}/#track`,
         fields: [
           { name: 'New Stage', value: payload.new_stage || comm.status_stage, inline: true },
           { name: 'Order Code', value: `#${code}`, inline: true },
@@ -78,7 +79,7 @@ function formatDiscordEmbed(
         title: `✨ New ${payload.is_final ? 'Final Master' : 'WIP'} Posted: #${code}`,
         description: `**Title:** ${payload.title || 'Work in progress'}\nCheck the Pizza-Tracker gallery to inspect progress.`,
         color: 0xf05d5e, // Coral
-        url: 'https://meruart.studio/#track',
+        url: `${siteUrl}/#track`,
         fields: [
           { name: 'Type', value: payload.is_final ? 'Final Deliverable (Completed)' : 'WIP Preview', inline: true },
           { name: 'Order Code', value: `#${code}`, inline: true },
@@ -92,7 +93,7 @@ function formatDiscordEmbed(
         title: `💰 Payment Verified for #${code}`,
         description: `Payment for commission **#${code}** has been confirmed by Meru Art Studio.`,
         color: 0x10b981, // Teal
-        url: 'https://meruart.studio/#track',
+        url: `${siteUrl}/#track`,
         fields: [
           { name: 'Order Code', value: `#${code}`, inline: true },
           { name: 'Status', value: 'Confirmed ✅', inline: true },
@@ -106,7 +107,7 @@ function formatDiscordEmbed(
         title: `💬 New Message on #${code}`,
         description: `"${payload.message_body?.slice(0, 200) || 'New message'}"`,
         color: 0x60a5fa, // Blue
-        url: 'https://meruart.studio/#track',
+        url: `${siteUrl}/#track`,
         footer: { text: 'Meru Art Studio Notification Engine' },
         timestamp,
       };
@@ -130,11 +131,12 @@ serve(async (req: Request) => {
   const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
   const supabaseAnonKey = Deno.env.get('SUPABASE_ANON_KEY') ?? '';
   const webhookSecret = Deno.env.get('WEBHOOK_SECRET');
+  const publicSiteUrl = (Deno.env.get('PUBLIC_SITE_URL') || 'https://meru-art-studio.vercel.app').replace(/\/+$/, '');
 
   // 1. Authenticate caller (JWT verification OR server-side Webhook Secret)
   const authHeader = req.headers.get('Authorization');
   const callerSecret = req.headers.get('X-Webhook-Secret');
-  const isSecretAuth = webhookSecret && callerSecret === webhookSecret;
+  const isSecretAuth = Boolean(webhookSecret && callerSecret === webhookSecret);
 
   if (!authHeader && !isSecretAuth) {
     return new Response(JSON.stringify({ error: 'Missing authorization credentials' }), {
@@ -144,6 +146,7 @@ serve(async (req: Request) => {
   }
 
   let callerUserId: string | null = null;
+  let callerIsArtistRole = false;
   if (!isSecretAuth && authHeader) {
     const userClient = createClient(supabaseUrl, supabaseAnonKey, {
       global: { headers: { Authorization: authHeader } },
@@ -157,6 +160,7 @@ serve(async (req: Request) => {
       });
     }
     callerUserId = authData.user.id;
+    callerIsArtistRole = (authData.user.app_metadata as Record<string, unknown> | undefined)?.role === 'artist';
   }
 
   // Admin client for authoritative DB reads & audit updates
@@ -195,11 +199,10 @@ serve(async (req: Request) => {
     });
   }
 
-  // Verify authorization: caller must be owner of the commission OR artist admin
+  // Verify authorization: caller must be owner of the commission OR artist admin (by role or UID)
   if (callerUserId && callerUserId !== comm.client_id) {
-    // Check if caller is artist admin
     const artistAdminUid = Deno.env.get('ARTIST_ADMIN_UID');
-    if (callerUserId !== artistAdminUid) {
+    if (!callerIsArtistRole && callerUserId !== artistAdminUid) {
       return new Response(JSON.stringify({ error: 'Unauthorized to dispatch notification for this commission' }), {
         status: 403,
         headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' },
@@ -224,13 +227,13 @@ serve(async (req: Request) => {
   try {
     // A. Dispatch Discord Webhook
     if (discordWebhookUrl) {
-      const embed = formatDiscordEmbed(payload, comm);
+      const embed = formatDiscordEmbed(payload, comm, publicSiteUrl);
       const discordRes = await fetch(discordWebhookUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           username: 'Meru Art Studio',
-          avatar_url: 'https://meruart.studio/favicon.ico',
+          avatar_url: `${publicSiteUrl}/favicon.ico`,
           embeds: [embed],
         }),
       });
@@ -260,7 +263,7 @@ serve(async (req: Request) => {
           </div>
           <p>To inspect your WIP sketches, send messages, or download deliverables, visit your private order room:</p>
           <p style="margin: 24px 0;">
-            <a href="https://meruart.studio/#track" style="background-color: #18181b; color: #ffffff; padding: 12px 24px; text-decoration: none; border-radius: 9999px; font-weight: 600; display: inline-block;">View Commission Tracker</a>
+            <a href="${publicSiteUrl}/#track" style="background-color: #18181b; color: #ffffff; padding: 12px 24px; text-decoration: none; border-radius: 9999px; font-weight: 600; display: inline-block;">View Commission Tracker</a>
           </p>
           <hr style="border: 0; border-top: 1px solid #e4e4e7; margin: 24px 0;" />
           <p style="font-size: 12px; color: #a1a1aa; margin-bottom: 0;">Meru Art Studio · Safe & Transparent Art Commissions</p>
@@ -300,7 +303,6 @@ serve(async (req: Request) => {
         })
         .eq('id', payload.log_id);
     } else {
-      // Find latest pending log for this commission & event and mark delivered
       await supabaseAdmin
         .from('notification_logs')
         .update({

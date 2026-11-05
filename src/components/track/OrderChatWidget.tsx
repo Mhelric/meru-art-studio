@@ -10,8 +10,9 @@ import {
   X,
   CreditCard,
 } from 'lucide-react';
-import { cn, formatShortDate } from '@/lib/utils';
+import { cn, formatShortDate, getClientDisplayName } from '@/lib/utils';
 import { uploadChatAttachment } from '@/lib/storage';
+import { useStudio } from '@/context/StudioContext';
 import type { AttachmentKind, SubmittedOrder } from '@/types';
 import type { User } from '@supabase/supabase-js';
 
@@ -48,12 +49,14 @@ export function OrderChatWidget({
 }: OrderChatWidgetProps) {
   const [chatInput, setChatInput] = useState('');
   const [attachmentKind, setAttachmentKind] = useState<AttachmentKind>('receipt');
+  const { unreadCounts, markCommissionRead } = useStudio();
   const chatFileInputRef = useRef<HTMLInputElement | null>(null);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const messageListRef = useRef<HTMLDivElement | null>(null);
   const isAtBottomRef = useRef(true);
 
   const orderDisplayCode = order.orderCode || order.id.slice(0, 8).toUpperCase();
+  const clientDisplayName = getClientDisplayName(order);
 
   const handleMessageScroll = () => {
     const el = messageListRef.current;
@@ -62,9 +65,10 @@ export function OrderChatWidget({
     isAtBottomRef.current = atBottom;
   };
 
-  // Scroll to bottom when opening
+  // Scroll to bottom and mark messages as read when opening
   useEffect(() => {
     if (isOpen) {
+      markCommissionRead(order.id);
       const timer = setTimeout(() => {
         if (messageListRef.current) {
           messageListRef.current.scrollTop = messageListRef.current.scrollHeight;
@@ -72,7 +76,7 @@ export function OrderChatWidget({
       }, 50);
       return () => clearTimeout(timer);
     }
-  }, [isOpen]);
+  }, [isOpen, order.id, order.messages.length, markCommissionRead]);
 
   // Keep at bottom when new messages arrive IF already near bottom
   useEffect(() => {
@@ -97,7 +101,7 @@ export function OrderChatWidget({
     if (!file || !user) return;
 
     showToast('Uploading chat attachment...');
-    const { path, error } = await uploadChatAttachment(user.id, order.id, file);
+    const { path, error } = await uploadChatAttachment(user.id, order.id, file, attachmentKind);
     if (error || !path) {
       showToast(`Upload failed: ${error ?? 'Unknown error'}`);
     } else {
@@ -124,9 +128,7 @@ export function OrderChatWidget({
     setChatInput('');
   };
 
-  const unreadCount = isArtistAdmin
-    ? order.messages.filter((m) => m.senderRole === 'client').length
-    : order.messages.filter((m) => m.senderRole === 'artist').length;
+  const unreadCount = isOpen ? 0 : (unreadCounts[order.id] ?? 0);
 
   return (
     <>
@@ -189,7 +191,7 @@ export function OrderChatWidget({
                     </div>
                     <p className="truncate text-[10px] text-ink-mute sm:text-[11px] max-w-[200px]">
                       {isArtistAdmin
-                        ? `Client: ${order.clientContact || 'Anonymous'}`
+                        ? `Client: ${clientDisplayName}`
                         : 'Direct communication with Meru'}
                     </p>
                   </div>
@@ -368,7 +370,7 @@ export function OrderChatWidget({
                     onChange={(e) => setChatInput(e.target.value)}
                     placeholder={
                       isArtistAdmin
-                        ? `Message ${order.clientContact || 'client'}...`
+                        ? `Message ${clientDisplayName}...`
                         : 'Write a message or payment ref...'
                     }
                     className="flex-1 rounded-full border border-line bg-paper px-3 py-1.5 text-xs text-ink placeholder:text-ink-mute focus:border-ink focus:outline-none sm:px-3.5 sm:py-2"
@@ -393,7 +395,7 @@ export function OrderChatWidget({
               onClick={onToggleOpen}
               title={
                 isArtistAdmin
-                  ? `Chat with ${order.clientContact || 'Client'} (${orderDisplayCode})`
+                  ? `Chat with ${clientDisplayName} (${orderDisplayCode})`
                   : 'Chat with Meru'
               }
               className="fixed right-4 bottom-20 z-40 group flex size-12 items-center justify-center rounded-full border-2 border-paper bg-ink shadow-2xl transition-all hover:bg-coral hover:scale-105 active:scale-95 sm:right-6 sm:bottom-6 sm:h-12 sm:w-auto sm:px-4"
@@ -405,7 +407,7 @@ export function OrderChatWidget({
               <MessageSquare className="size-5 text-mustard sm:ml-2" />
               <span className="hidden sm:inline sm:ml-2 text-xs font-semibold text-white whitespace-nowrap">
                 {isArtistAdmin
-                  ? `Chat with ${order.clientContact || 'Client'}`
+                  ? `Chat with ${clientDisplayName}`
                   : 'Chat with Meru'}
               </span>
               {unreadCount > 0 && (

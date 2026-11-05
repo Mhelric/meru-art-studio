@@ -21,7 +21,7 @@ import type { SubmittedOrder, WipUploadItem, ClientReview } from '@/types';
 import { formatMoney } from '@/lib/utils';
 import { artSrc } from '@/components/portfolio/ArtImage';
 import { lockScroll } from '@/lib/smoothScroll';
-import { DEFAULT_PAYMENT_DETAILS } from '@/context/StudioContext';
+import { DEFAULT_PAYMENT_DETAILS, useStudio } from '@/context/StudioContext';
 
 interface ClientArtworkAcceptanceModalProps {
   isOpen: boolean;
@@ -49,6 +49,8 @@ export function ClientArtworkAcceptanceModal({
   finalWip,
   onConfirmAcceptance,
 }: ClientArtworkAcceptanceModalProps) {
+  const { studioSettings } = useStudio();
+  const paymentDetails = studioSettings.paymentDetails ?? DEFAULT_PAYMENT_DETAILS;
   const [selectedTip, setSelectedTip] = useState<number>(0);
   const [customTip, setCustomTip] = useState<string>('');
   const [isCustom, setIsCustom] = useState<boolean>(false);
@@ -130,7 +132,7 @@ export function ClientArtworkAcceptanceModal({
 
   // 1-Click PayPal tip link
   const paypalTipUrl = `https://www.paypal.com/cgi-bin/webscr?cmd=_xclick&business=${encodeURIComponent(
-    DEFAULT_PAYMENT_DETAILS.paypalEmail,
+    paymentDetails.paypalEmail,
   )}&item_name=${encodeURIComponent(`Meru Art Studio - Tip for #${displayCode}`)}&amount=${effectiveTip.toFixed(2)}&currency_code=USD&no_shipping=1`;
 
   return (
@@ -466,7 +468,7 @@ export function ClientArtworkAcceptanceModal({
                       <p className="text-xs font-bold text-ink group-hover:text-coral transition">
                         Pay {formatMoney(effectiveTip, 'USD')} via PayPal 1-Click
                       </p>
-                      <p className="text-[11px] text-ink-mute">Direct instant transfer to mkun.arts@gmail.com</p>
+                      <p className="text-[11px] text-ink-mute">Direct instant transfer to {paymentDetails.paypalEmail}</p>
                     </div>
                   </div>
                   <ExternalLink className="size-4 text-ink-soft group-hover:text-coral transition" />
@@ -479,7 +481,7 @@ export function ClientArtworkAcceptanceModal({
                     <span>GCash Tip Alternative:</span>
                   </div>
                   <p className="text-ink-soft text-[11px]">
-                    Send to <strong>{DEFAULT_PAYMENT_DETAILS.gcashNumber}</strong> ({DEFAULT_PAYMENT_DETAILS.gcashName}) with memo <code>#Tip-{displayCode}</code>.
+                    Send to <strong>{paymentDetails.gcashNumber}</strong> ({paymentDetails.gcashName}) with memo <code>#Tip-{displayCode}</code>.
                   </p>
                 </div>
               </div>
