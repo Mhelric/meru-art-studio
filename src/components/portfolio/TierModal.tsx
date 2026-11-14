@@ -311,7 +311,7 @@ export function TierModal() {
             exit={{ opacity: 0, scale: 0.96, y: 16 }}
             transition={{ duration: 0.25, ease: EASE }}
             onClick={(e) => e.stopPropagation()}
-            className="flex max-h-[92dvh] w-full max-w-lg flex-col overflow-hidden rounded-[28px] border border-line bg-paper shadow-2xl sm:rounded-[32px]"
+            className="flex max-h-[92dvh] w-full max-w-lg flex-col overflow-hidden rounded-[28px] border border-line bg-paper shadow-2xl sm:max-w-xl sm:rounded-[32px] md:max-w-2xl lg:max-w-3xl"
           >
             {/* Header: Title + Currency Switcher + Close */}
             <div className="flex items-center justify-between gap-2 px-4 pt-3.5 pb-2.5 sm:px-5 sm:pt-4">
