@@ -9,7 +9,7 @@ import {
   ExternalLink,
   AlertTriangle,
 } from 'lucide-react';
-import { cn } from '@/lib/utils';
+import { cn, getClientDisplayName } from '@/lib/utils';
 import { lockScroll } from '@/lib/smoothScroll';
 import type { SubmittedOrder, WipUploadItem } from '@/types';
 import { artSrc } from '@/components/portfolio/ArtImage';
@@ -39,11 +39,11 @@ export function MilestoneSignoffModal({
     termsAcknowledged: false,
   });
 
-  const [signerName, setSignerName] = useState(order.clientContact || 'Client');
+  const [signerName, setSignerName] = useState(getClientDisplayName(order));
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [hasSignedSuccessfully, setHasSignedSuccessfully] = useState(false);
 
-  // Reset checklist when opened
+  // Reset checklist only when modal opens or order ID changes (never on background refetch of `order`)
   useEffect(() => {
     if (isOpen) {
       setChecklist({
@@ -51,13 +51,14 @@ export function MilestoneSignoffModal({
         characterAndDetails: false,
         termsAcknowledged: false,
       });
-      setSignerName(order.clientContact || 'Client');
+      setSignerName(getClientDisplayName(order));
       setIsSubmitting(false);
       setHasSignedSuccessfully(false);
       lockScroll(true);
       return () => lockScroll(false);
     }
-  }, [isOpen, order.clientContact]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen, order.id]);
 
   const canSign = isSignoffComplete(checklist) && signerName.trim().length > 0;
   const previewImage = wip?.imageUrl || (wip?.slug ? artSrc(wip.slug, 'sm') : null);

@@ -193,7 +193,7 @@ export function AdminDashboard() {
         </div>
 
         {/* Active Tab Panel (WCAG tabpanel) */}
-        <main className="min-w-0 flex-1 w-full">
+        <div className="min-w-0 flex-1 w-full">
           <div
             role="tabpanel"
             id={`admin-panel-${activeSubTab}`}
@@ -257,7 +257,7 @@ export function AdminDashboard() {
               />
             )}
           </div>
-        </main>
+        </div>
       </div>
 
       {/* Decline & Cancel Reason Modal */}

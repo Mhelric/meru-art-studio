@@ -20,6 +20,15 @@
 -- =============================================================================
 
 -- -----------------------------------------------------------------------------
+-- 0. SCHEMA COLUMNS ENSURED FOR PHASE 10 TRIGGERS & RPCS
+-- -----------------------------------------------------------------------------
+alter table public.commissions
+  add column if not exists sketch_approved boolean not null default false;
+
+alter table public.wip_uploads
+  add column if not exists revision_note text;
+
+-- -----------------------------------------------------------------------------
 -- 1. UNIFIED COMMISSION INTEGRITY TRIGGER
 -- -----------------------------------------------------------------------------
 create or replace function public.enforce_commission_integrity()
@@ -523,10 +532,11 @@ grant execute on function public.transition_commission(uuid, text, integer) to a
 -- -----------------------------------------------------------------------------
 -- 5. HARDENED CLIENT WORKFLOW RPCs (REVOKE ANON, ENFORCE STAGE & PAYMENT GATES)
 -- -----------------------------------------------------------------------------
-revoke execute on function public.approve_wip(uuid) from anon;
-revoke execute on function public.client_complete_commission(uuid) from anon;
-revoke execute on function public.request_wip_revision(uuid, text, text) from anon;
-revoke execute on function public.submit_client_review(uuid, jsonb) from anon;
+drop function if exists public.approve_wip(uuid);
+drop function if exists public.client_complete_commission(uuid);
+drop function if exists public.request_wip_revision(uuid, text, text, text);
+drop function if exists public.request_wip_revision(uuid, text, text);
+drop function if exists public.submit_client_review(uuid, jsonb);
 
 create or replace function public.approve_wip(target_wip_id uuid)
 returns void
@@ -579,6 +589,7 @@ begin
 end;
 $$;
 
+revoke execute on function public.approve_wip(uuid) from anon;
 grant execute on function public.approve_wip(uuid) to authenticated;
 
 create or replace function public.client_complete_commission(target_commission_id uuid)
@@ -592,7 +603,7 @@ declare
   v_stage public.commission_stage;
   v_final_paid boolean;
   v_deposit_paid boolean;
-  v_payment_split public.payment_split;
+  v_payment_split public.payment_split_mode;
   v_has_final_wip boolean;
 begin
   select client_id, status_stage, final_paid, deposit_paid, payment_split
@@ -655,6 +666,7 @@ begin
 end;
 $$;
 
+revoke execute on function public.client_complete_commission(uuid) from anon;
 grant execute on function public.client_complete_commission(uuid) to authenticated;
 
 create or replace function public.request_wip_revision(
@@ -692,11 +704,14 @@ begin
     revision_requested = true,
     approved_by_client = false,
     revision_scale = coalesce(p_scale, 'minor'),
-    revision_note = p_note
+    revision_note = p_note,
+    revision_notes = p_note,
+    revision_requested_at = now()
   where id = target_wip_id;
 end;
 $$;
 
+revoke execute on function public.request_wip_revision(uuid, text, text) from anon;
 grant execute on function public.request_wip_revision(uuid, text, text) to authenticated;
 
 create or replace function public.submit_client_review(
@@ -713,7 +728,7 @@ declare
   v_stage public.commission_stage;
   v_final_paid boolean;
   v_deposit_paid boolean;
-  v_payment_split public.payment_split;
+  v_payment_split public.payment_split_mode;
 begin
   select client_id, status_stage, final_paid, deposit_paid, payment_split
   into v_client_id, v_stage, v_final_paid, v_deposit_paid, v_payment_split
@@ -755,6 +770,7 @@ begin
 end;
 $$;
 
+revoke execute on function public.submit_client_review(uuid, jsonb) from anon;
 grant execute on function public.submit_client_review(uuid, jsonb) to authenticated;
 
 -- -----------------------------------------------------------------------------

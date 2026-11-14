@@ -26,15 +26,17 @@ export function NavBar() {
 
   const navItems = NAV.filter((item) => item.id !== 'admin' || isArtistAdmin);
 
-  // Framer-style header: hide on scroll down, reveal on scroll up (throttled threshold)
+  // Framer-style header: hide on scroll down, reveal on scroll up or near top
   useMotionValueEvent(scrollY, 'change', (y) => {
     const prev = scrollY.getPrevious() ?? 0;
     const isScrolled = y > 12;
     setScrolled((s) => (s !== isScrolled ? isScrolled : s));
 
-    if (y > 260 && y > prev + 10) {
+    if (y <= 80) {
+      setHidden(false);
+    } else if (y > 260 && y > prev + 10) {
       setHidden(true);
-    } else if (y < prev - 10) {
+    } else if (y < prev - 8) {
       setHidden(false);
     }
   });
@@ -47,6 +49,7 @@ export function NavBar() {
   const userAvatar = (user?.user_metadata?.avatar_url as string | undefined) || null;
 
   const handleNavSelect = (id: TabId) => {
+    setHidden(false);
     if (id === 'portfolio' && activeTab === 'portfolio') {
       scrollToTarget('#gallery', 0);
       return;

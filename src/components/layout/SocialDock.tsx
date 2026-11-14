@@ -16,6 +16,13 @@ export function SocialDock() {
   const { showToast, drawerOpen, lightbox, activeTab } = useStudio();
   const [copied, setCopied] = useState(false);
   const [atBottom, setAtBottom] = useState(false);
+  const [isEmbedded] = useState(() => {
+    try {
+      return window.self !== window.top;
+    } catch {
+      return true;
+    }
+  });
 
   useEffect(() => {
     const handleScroll = () => {
@@ -36,8 +43,8 @@ export function SocialDock() {
     };
   }, [activeTab]);
 
-  // Unmount on Admin panel, Order Tracker, and Schedule tab
-  if (activeTab === 'admin' || activeTab === 'track' || activeTab === 'schedule') {
+  // Unmount in iframe live previews, Admin panel, Order Tracker, and Schedule tab
+  if (isEmbedded || activeTab === 'admin' || activeTab === 'track' || activeTab === 'schedule') {
     return null;
   }
 

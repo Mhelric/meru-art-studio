@@ -1,6 +1,6 @@
 import { CheckCircle2, XCircle, Clock, ExternalLink, AlertTriangle } from 'lucide-react';
 import type { SubmittedOrder } from '@/types';
-import { getTier, formatUsd, ACCENT_CLASSES, TIER_ACCENT } from '@/lib/utils';
+import { getTier, formatUsd, ACCENT_CLASSES, TIER_ACCENT, getClientDisplayName } from '@/lib/utils';
 import { getActiveCancellationRequest } from '@/lib/orderCancellation';
 
 interface IncomingBriefsTabProps {
@@ -81,10 +81,16 @@ export function IncomingBriefsTab({
 
                 <div className="mt-3">
                   <h4 className="font-display text-base font-bold text-ink">
-                    #{order.orderCode || order.id} · {order.characterName || 'Untitled Character'}
+                    #{order.orderCode || order.id} · {getClientDisplayName(order)}
                   </h4>
                   <p className="text-xs font-medium text-ink-soft">
-                    Client: <span className="font-semibold text-ink">{order.clientContact || 'Anonymous'}</span>
+                    Client: <span className="font-semibold text-ink">{getClientDisplayName(order)}</span>
+                    {order.clientContact && order.clientContact !== getClientDisplayName(order) && (
+                      <span className="text-ink-mute"> ({order.clientContact})</span>
+                    )}
+                    {order.characterName && (
+                      <span className="text-ink-mute"> · Character: {order.characterName}</span>
+                    )}
                   </p>
                 </div>
 

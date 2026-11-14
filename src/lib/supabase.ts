@@ -275,7 +275,10 @@ export function mapCommissionRowToSubmitted(
     depositUsd: Number(row.deposit_due),
     depositPaid: Boolean(row.deposit_paid),
     finalPaid: Boolean(row.final_paid),
-    sketchApproved: row.status_stage === 'lineart_coloring' || row.status_stage === 'completed',
+    sketchApproved:
+      Boolean((row as { sketch_approved?: boolean }).sketch_approved) ||
+      row.status_stage === 'lineart_coloring' ||
+      row.status_stage === 'completed',
     stage: row.status_stage,
     progress: row.progress ?? 10,
     startDate: row.start_date ?? undefined,
@@ -611,6 +614,21 @@ export async function updateCommissionStageInDb(
   progress?: number,
 ): Promise<{ success: boolean; error: string | null }> {
   if (!supabase) return { success: false, error: 'Supabase not connected' };
+
+  // Try authoritative transition_commission RPC first so workflow gates and
+  // system audit chat notifications run automatically on the backend.
+  try {
+    const { error: rpcError } = await supabase.rpc('transition_commission', {
+      p_commission_id: commissionId,
+      p_target_stage: stage,
+      p_progress: progress ?? null,
+    });
+    if (!rpcError) {
+      return { success: true, error: null };
+    }
+  } catch {
+    // Fall back to direct update below (e.g., for manual admin stage overrides)
+  }
 
   // Only update the milestone stage and progress.
   // Never forcibly overwrite deposit_paid or final_paid here; payment flags must only be
@@ -1129,17 +1147,31 @@ export async function requestWipRevisionInDb(
     // fallback below
   }
 
-  // Fallback: direct table update
+  // Fallback: direct table update (using Phase 9 column names first, then fallback)
   try {
-    await supabase
+    const { error: updateErr } = await supabase
       .from('wip_uploads')
       .update({
         revision_requested: true,
         approved_by_client: false,
-        revision_note: combinedNote,
+        revision_notes: details.notes || combinedNote,
+        revision_category: details.category || null,
         revision_scale: details.scale || 'minor',
+        revision_requested_at: new Date().toISOString(),
       })
       .eq('id', wipId);
+
+    if (updateErr) {
+      await supabase
+        .from('wip_uploads')
+        .update({
+          revision_requested: true,
+          approved_by_client: false,
+          revision_note: combinedNote,
+          revision_scale: details.scale || 'minor',
+        })
+        .eq('id', wipId);
+    }
   } catch (err: any) {
     console.warn('Wip direct update warning:', err);
   }

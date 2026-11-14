@@ -201,15 +201,30 @@ export function getOrderSignoffStatus(order: SubmittedOrder): {
   }
 
   // Check if any sketch or current stage WIP is marked approved
-  const approvedWip = (order.wips ?? []).find(
-    (w) => w.approvedByClient && (w.stage === 'sketch_approval' || w.stage === order.stage),
-  );
+  const approvedWip =
+    (order.wips ?? []).find(
+      (w) => w.approvedByClient && (w.stage === 'sketch_approval' || w.stage === order.stage),
+    ) ?? (order.wips ?? []).find((w) => w.approvedByClient);
 
   if (approvedWip) {
     return {
       isSignedOff: true,
       signedOffAt: approvedWip.createdAt,
       signedOffWipTitle: approvedWip.title,
+    };
+  }
+
+  // Check if formal Milestone Sign-off message was recorded in order chat
+  const signoffMsg = [...(order.messages ?? [])]
+    .reverse()
+    .find((m) => m.body.startsWith('[Milestone Sign-off · Approved]') || m.body.startsWith('Approved WIP:'));
+
+  if (signoffMsg) {
+    const titleMatch = signoffMsg.body.match(/"([^"]+)"/);
+    return {
+      isSignedOff: true,
+      signedOffAt: signoffMsg.createdAt,
+      signedOffWipTitle: titleMatch?.[1] ?? 'Sketch Milestone',
     };
   }
 

@@ -9,7 +9,7 @@ import {
   Eye,
 } from 'lucide-react';
 import type { SubmittedOrder } from '@/types';
-import { getTier, formatUsd, cn } from '@/lib/utils';
+import { getTier, formatUsd, cn, getClientDisplayName } from '@/lib/utils';
 import { ArchiveDetailDialog } from '../dialogs/ArchiveDetailDialog';
 
 interface ArchiveTabProps {
@@ -157,9 +157,12 @@ export function ArchiveTab({ orders, onOpenDeleteDialog }: ArchiveTabProps) {
 
                   <div className="mt-3">
                     <h4 className="font-display text-base font-bold text-ink">
-                      {order.characterName || 'Untitled'} · {getTier(order.tier).label}
+                      {getClientDisplayName(order)} · {getTier(order.tier).label}
                     </h4>
-                    <p className="text-xs text-ink-soft">Client: {order.clientContact || 'Anonymous'}</p>
+                    <p className="text-xs text-ink-soft">
+                      Client: {getClientDisplayName(order)}
+                      {order.characterName ? ` · Character: ${order.characterName}` : ''}
+                    </p>
                     {order.poseAndVibe && (
                       <p className="mt-1 line-clamp-2 text-xs text-ink-mute italic">
                         "{order.poseAndVibe}"

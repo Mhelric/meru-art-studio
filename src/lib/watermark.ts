@@ -42,8 +42,8 @@ export async function createWatermarkedImage(
       ctx.textBaseline = 'middle';
 
       const angle = -24 * (Math.PI / 180);
-      const stepX = Math.round(canvas.width / 2.6);
-      const stepY = Math.round(canvas.height / 3.2);
+      const stepX = Math.max(40, Math.round(canvas.width / 2.6));
+      const stepY = Math.max(40, Math.round(canvas.height / 3.2));
 
       // Repeating grid pattern over rotated canvas
       for (let x = -canvas.width; x < canvas.width * 2; x += stepX) {

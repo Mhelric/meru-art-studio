@@ -144,10 +144,22 @@ export function calculateMultiDateSelection(
 }
 
 /**
+ * Parse an optional YYYY-MM-DD ISO string into a local Date object,
+ * or default to the current local date.
+ */
+function parseLocalIsoOrToday(todayIso?: string): Date {
+  if (todayIso && /^\d{4}-\d{2}-\d{2}$/.test(todayIso)) {
+    const [y, m, d] = todayIso.split('-').map(Number);
+    return new Date(y, m - 1, d);
+  }
+  return new Date();
+}
+
+/**
  * Get remaining dates of the current week (from today to Saturday).
  */
 export function getWeekDaysRemaining(todayIso?: string): string[] {
-  const today = new Date();
+  const today = parseLocalIsoOrToday(todayIso);
   const todayStr = todayIso || getLocalIsoDateString(today);
   const dow = today.getDay(); // 0 is Sunday, 6 is Saturday
   const daysUntilWeekend = 6 - dow;
@@ -165,7 +177,7 @@ export function getWeekDaysRemaining(todayIso?: string): string[] {
  * Get remaining dates of the current month (from today to month end).
  */
 export function getMonthDaysRemaining(todayIso?: string): string[] {
-  const today = new Date();
+  const today = parseLocalIsoOrToday(todayIso);
   const todayStr = todayIso || getLocalIsoDateString(today);
   const lastDay = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate();
   const currentDay = today.getDate();

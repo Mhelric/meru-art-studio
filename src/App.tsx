@@ -51,6 +51,13 @@ const SPLASH_KEY = 'meru-splash-seen';
 export default function App() {
   const { activeTab, isArtistAdmin } = useStudio();
   const [showSplash, setShowSplash] = useState(() => !sessionStorage.getItem(SPLASH_KEY));
+  const [isEmbedded] = useState(() => {
+    try {
+      return window.self !== window.top;
+    } catch {
+      return true;
+    }
+  });
 
   useEffect(() => initSmoothScroll(), []);
 
@@ -67,7 +74,12 @@ export default function App() {
         <NavBar />
         <SocialDock />
 
-        <main className={cn('mx-auto max-w-6xl px-4 lg:px-8', activeTab !== 'admin' && 'sm:pl-20')}>
+        <main
+          className={cn(
+            'mx-auto max-w-6xl px-4 lg:px-8',
+            !isEmbedded && activeTab !== 'admin' && activeTab !== 'track' && activeTab !== 'schedule' && 'sm:pl-20 lg:pl-20',
+          )}
+        >
           <AnimatePresence mode="wait">
             <motion.div
               key={activeTab}

@@ -300,26 +300,21 @@ export function TierModal() {
           exit={{ opacity: 0 }}
           transition={{ duration: 0.2 }}
           onClick={closeDrawer}
-          className="fixed inset-0 z-[85] flex items-end justify-end bg-ink/55 backdrop-blur-sm sm:items-stretch"
+          className="fixed inset-0 z-[85] flex items-center justify-center bg-ink/55 p-3 backdrop-blur-sm sm:p-6"
         >
           <motion.div
             ref={drawerRef}
             data-lenis-prevent
             tabIndex={-1}
-            initial={{ y: '100%' }}
-            animate={{ y: 0 }}
-            exit={{ y: '100%' }}
-            transition={{ duration: 0.35, ease: EASE }}
+            initial={{ opacity: 0, scale: 0.96, y: 16 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.96, y: 16 }}
+            transition={{ duration: 0.25, ease: EASE }}
             onClick={(e) => e.stopPropagation()}
-            className="flex max-h-[90dvh] w-full flex-col overflow-hidden rounded-t-[28px] border-t border-line bg-paper sm:h-full sm:max-h-none sm:max-w-lg sm:rounded-none sm:rounded-l-[32px] sm:border-t-0 sm:border-l"
+            className="flex max-h-[92dvh] w-full max-w-lg flex-col overflow-hidden rounded-[28px] border border-line bg-paper shadow-2xl sm:rounded-[32px]"
           >
-            {/* Mobile grab handle */}
-            <div className="flex justify-center pt-2 sm:hidden">
-              <span className="h-1 w-9 rounded-full bg-line" />
-            </div>
-
             {/* Header: Title + Currency Switcher + Close */}
-            <div className="flex items-center justify-between gap-2 px-4 pt-2.5 pb-2.5 sm:px-5 sm:pt-4">
+            <div className="flex items-center justify-between gap-2 px-4 pt-3.5 pb-2.5 sm:px-5 sm:pt-4">
               <div className="flex items-center gap-2">
                 <h2 className="font-display text-xl font-semibold text-ink sm:text-2xl">
                   {justSubmitted ? 'Request Received!' : 'Commission Request'}
@@ -1043,7 +1038,7 @@ function SubmissionSuccess({
         <CheckCircle2 className="size-7" />
       </div>
       <span className="mt-3 rounded-full bg-mustard-soft px-3 py-0.5 text-xs font-semibold text-[#b9800f]">
-        Order #{order.id} · Pending Artist Review
+        Order #{order.orderCode || order.id} · Pending Artist Review
       </span>
       <h3 className="mt-2 font-display text-3xl font-semibold text-ink">Brief Sent to Meru!</h3>
       <p className="mt-1 max-w-sm text-xs leading-relaxed text-ink-soft">

@@ -971,10 +971,13 @@ function InnerStudioProvider({ children }: { children: ReactNode }) {
       }
 
       if (nextStage !== currentStage || nextProgress !== currentProgress) {
-        updateStageMut.mutate({ commissionId: orderId, stage: nextStage, progress: nextProgress });
-      } else {
-        queryClient.invalidateQueries({ queryKey: QUERY_KEYS.commissions });
+        try {
+          await updateStageMut.mutateAsync({ commissionId: orderId, stage: nextStage, progress: nextProgress });
+        } catch {
+          // fallback invalidation below
+        }
       }
+      await queryClient.invalidateQueries({ queryKey: QUERY_KEYS.commissions });
 
       showToast(payload.isFinal ? 'Final master file unlocked & stage completed!' : 'Watermarked WIP uploaded to client vault!');
     },
@@ -1031,12 +1034,13 @@ function InnerStudioProvider({ children }: { children: ReactNode }) {
       clientSignerName?: string,
     ) => {
       const target = submittedOrders.find((o) => o.id === orderId);
-      const wip = (target?.wips ?? []).find((w) => w.id === wipId) ?? target?.wips[0];
+      const wip = (target?.wips ?? []).find((w) => w.id === wipId) ?? target?.wips[(target?.wips.length ?? 1) - 1];
+      const targetWipId = wipId || wip?.id;
       const wipLabel = wip?.title ?? 'Milestone Deliverable';
       const signer = clientSignerName?.trim() || target?.clientContact || 'Client';
 
-      if (wipId) {
-        await approveWip(orderId, wipId, wipLabel);
+      if (targetWipId) {
+        await approveWip(orderId, targetWipId, wipLabel);
       }
 
       const checklistSummary = checklist
@@ -1044,14 +1048,19 @@ function InnerStudioProvider({ children }: { children: ReactNode }) {
         : '';
       const signoffMessage = `[Milestone Sign-off · Approved]: ${signer} formally signed off on "${wipLabel}"${checklistSummary}. Milestone locked & verified.`;
 
-      sendOrderMessage(orderId, signoffMessage, {
-        senderRole: isArtistAdmin ? 'artist' : 'client',
-      });
+      try {
+        await sendMessageMut.mutateAsync({
+          commissionId: orderId,
+          body: signoffMessage,
+        });
+      } catch {
+        // fallback invalidation below
+      }
 
-      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.commissions });
+      await queryClient.invalidateQueries({ queryKey: QUERY_KEYS.commissions });
       showToast(`Milestone formally signed off for "${wipLabel}"!`);
     },
-    [approveWip, isArtistAdmin, queryClient, sendOrderMessage, showToast, submittedOrders],
+    [approveWip, isArtistAdmin, queryClient, sendMessageMut, showToast, submittedOrders],
   );
 
   const requestWipRevision = useCallback(

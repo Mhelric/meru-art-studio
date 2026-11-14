@@ -16,7 +16,7 @@ import {
   FileText,
 } from 'lucide-react';
 import type { SubmittedOrder } from '@/types';
-import { formatUsd, formatMoney, getTier, cn } from '@/lib/utils';
+import { formatUsd, formatMoney, getTier, cn, getClientDisplayName } from '@/lib/utils';
 import { useStudio } from '@/context/StudioContext';
 import { getSignedMediaUrl, STORAGE_BUCKETS } from '@/lib/storage';
 
@@ -197,10 +197,11 @@ export function ArchiveDetailDialog({
               </div>
 
               <h3 id="archive-detail-title" className="mt-1 font-display text-xl font-bold text-ink">
-                {order.characterName || 'Untitled'} · {getTier(order.tier).label}
+                {getClientDisplayName(order)} · {getTier(order.tier).label}
               </h3>
               <p className="text-xs text-ink-soft">
-                Client: <strong>{order.clientContact || 'Anonymous'}</strong> · Total: <strong>{formatUsd(order.totalUsd)}</strong>
+                Client: <strong>{getClientDisplayName(order)}</strong>
+                {order.characterName ? ` · Character: ${order.characterName}` : ''} · Total: <strong>{formatUsd(order.totalUsd)}</strong>
               </p>
             </div>
 

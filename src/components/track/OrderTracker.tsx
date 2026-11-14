@@ -27,7 +27,7 @@ import {
 import { useMemo, useRef, useState, type ChangeEvent, type FormEvent } from 'react';
 import { STAGE_STEPS } from '@/data/orders';
 import { useStudio } from '@/context/StudioContext';
-import { ACCENT_CLASSES, TIER_ACCENT, cn, formatMoney, formatShortDate, getTier } from '@/lib/utils';
+import { ACCENT_CLASSES, TIER_ACCENT, cn, formatMoney, formatShortDate, getTier, getClientDisplayName } from '@/lib/utils';
 import { artSrc, ArtImage } from '@/components/portfolio/ArtImage';
 import { SectionHeading } from '@/components/ui/SectionHeading';
 import { BrandIcon } from '@/components/ui/BrandIcon';
@@ -414,7 +414,7 @@ export function OrderTracker() {
               Admin Preview
             </span>
             <span className="font-medium">
-              You are inspecting the Client Tracker Room for <strong>#{orderDisplayCode}</strong> ({order.clientContact || 'Client'}).
+              You are inspecting the Client Tracker Room for <strong>#{orderDisplayCode}</strong> ({getClientDisplayName(order)}).
             </span>
           </div>
           <button
@@ -527,13 +527,13 @@ export function OrderTracker() {
           remainingUsd={remainingUsd}
           onUploadDeposit={() => triggerReceiptUpload('deposit')}
           onApproveSketchAndPay={() => {
-            const sketchWip = order.wips.find((w) => w.stage === 'sketch_approval') ?? order.wips[0] ?? null;
+            const sketchWip = [...order.wips].reverse().find((w) => w.stage === 'sketch_approval') ?? order.wips[order.wips.length - 1] ?? null;
             setSignoffWip(sketchWip);
             setAfterSignoffOpenPayment(true);
             setIsSignoffModalOpen(true);
           }}
           onApproveSketchOnly={() => {
-            const sketchWip = order.wips.find((w) => w.stage === 'sketch_approval') ?? order.wips[0] ?? null;
+            const sketchWip = [...order.wips].reverse().find((w) => w.stage === 'sketch_approval') ?? order.wips[order.wips.length - 1] ?? null;
             setSignoffWip(sketchWip);
             setAfterSignoffOpenPayment(false);
             setIsSignoffModalOpen(true);
